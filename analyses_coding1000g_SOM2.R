@@ -1,0 +1,1772 @@
+#======================LOAD_INITIAL_FILES====================================================
+#TAG 'LOAD_INITIAL_FILES'
+if (TRUE)
+{
+popnames<-c("TSI","IBS","PUR","GWD","CHB","JPT","CHS","FIN","ACB","YRI","KHV","STU")
+setwd("~/Dropbox/LDLD")
+source("analysesLDLD_header.R")
+options(scipen=999)
+setwd("/mnt/scratch/fabrizio/LDLD")
+library(data.table)
+data<-fread("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/anal/sorted2.res")
+mynames<-c("chrA","chrB","posA","posB","dbsnpA","dbsnpB","nA","nB","Nse","nAB","nAA","nBB","D","D1","rho2","prho2","pfisher","pKuli","T2","Xtot","X","pop","popX")
+#names(data)<-mynames #if data.frame
+setnames(data,mynames)
+#save(data,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/rawres.RData")
+#load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/rawres.RData")
+dataFIN<-subset(data,data$pop==7)
+ncomp<-read.table("above95/coding1000g/ncomparisons.txt",header=FALSE)
+ncomp<-sum(ncomp$V1)
+combined_pval<-dchisq(dataFIN$X,df=2*dataFIN$popX)
+combined_fdr<-p.adjust(p=combined_pval, method = "fdr", n = ncomp)
+length(combined_fdr)
+dim(dataFIN)
+dim(data)
+
+fullsign<-cbind(dataFIN,combined_fdr)[combined_fdr<0.05,]
+#save(fullsign,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/fullsign_new.RData")
+#save(combined_pval,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/combined_pval.RData")
+save(dataFIN,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/dataFIN.RData") 
+save(fullsign,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/fullsign.RData") #if from high res new.
+save(combined_pval,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/combined_pval.RData")
+#in early code called sign
+highlysign<-cbind(dataFIN,combined_fdr)[combined_fdr<0.00001,]
+dim(highlysign)
+
+signAbed<-as.data.frame(cbind(as.character(paste0('chr',fullsign$chrA)),fullsign$posA-1,fullsign$posA),stringsAsFactors =FALSE)
+signBbed<-as.data.frame(cbind(as.character(paste0('chr',fullsign$chrB)),fullsign$posB-1,fullsign$posB),stringsAsFactors =FALSE)
+names(signAbed)<-c("chr","start","end")
+names(signBbed)<-c("chr","start","end")
+signAbed$start<-as.numeric(signAbed$start)
+signAbed$end<-as.numeric(signAbed$end)
+signBbed$start<-as.numeric(signBbed$start)
+signBbed$end<-as.numeric(signBbed$end)
+#create logos
+write.table(signAbed,file="above95/coding1000g/new/anal/snpsA.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+write.table(signBbed,file="above95/coding1000g/new/anal/snpsB.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+
+#explorative plots to check consistency of p-values
+#custom function to make color transparent
+t_col <- function(color, percent = 50, name = NULL) { #color = color name, percent = % transparency,name = an optional name for the color
+      rgb.val <- col2rgb(color) # Get RGB values for named color
+  t.col <- rgb(rgb.val[1], rgb.val[2], rgb.val[3], # Make new color using input color as base and alpha set by transparency
+               max = 255, alpha = (100-percent)*255/100,names = name)
+  # Save the color
+  invisible(t.col)
+  }
+}
+#================================================================================================^
+#===============IDENTIFYING SIGNIFICANT PAIRS BASED ON THEORETICAL P-VALUES======================
+#================================================================================================
+if(FALSE)
+{
+#Different ways of obtaining list of significant pairs
+#no empirical distribution
+combined_T2pval<-dchisq(dataFIN$X,df=2*dataFIN$popX)
+combined_T2fdr<-p.adjust(p=combined_T2pval, method = "fdr", n = ncomp) #not the best approach because like this I have all pairs. This is why probably at the beginning I was using a smaller cutoff.
+mydata<-data[data$nA>=0.05*data$Nse,]
+mydata<-mydata[mydata$nA<=0.95*mydata$Nse,]
+mydata<-mydata[mydata$nB>=0.05*mydata$Nse,]
+mydata<-mydata[mydata$nB<=0.95*mydata$Nse,]
+range(combined_T2pval) #0.000000e+00 2.496462e-06
+
+
+pairid<-mydata[, paste(chrA,chrB,posA,posB,sep=".")]
+mydata[,pairid:=pairid]
+dim(mydata)
+length(pairid)
+combined_prho2pval<-aggregate(mydata$prho2,by=list(pairid),FUN=function(x) 1-pchisq(-2*log(prod(x)),df=2*length(x)))
+combined_pKulipval<-aggregate(mydata$pKuli,by=list(pairid),FUN=function(x) 1-pchisq(-2*log(prod(x)),df=2*length(x)))
+combined_prho2fdr<-p.adjust(p=combined_prho2pval[,2], method = "fdr", n = ncomp) 
+combined_pKulifdr<-p.adjust(p=combined_pKulipval[,2], method = "fdr", n = ncomp) 
+
+mypvalues<-cbind(combined_prho2pval,combined_pKulipval[,2],combined_prho2fdr,combined_pKulifdr)
+sum(as.numeric(combined_prho2fdr<0.05))
+sum(as.numeric(combined_pKulifdr<0.05))
+sum(as.numeric(combined_T2fdr<0.05))
+
+#save(fullsign,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/fullsign.RData")
+names(mypvalues)<-c("pairid","combined_prho2","combined_pKuli","combined_prho2_fdr","combined_pKuli_fdr")
+mydata<-merge(mydata,mypvalues,by="pairid")
+save(mydata,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/mypairs.RData")
+
+load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/mypairs.RData")
+
+#plot with pvalues for all populations from snps that are significant in combined p-value based on T2 (without permutations).===========V
+#these plots show that various pvalues method correlate pretty well, except for T2 that overestimated, but used for quick calculations.
+mydata<-fullsign[fullsign$nA>=0.05*fullsign$Nse,]
+mydata<-mydata[mydata$nA<=0.95*mydata$Nse,]
+mydata<-mydata[mydata$nB>=0.05*mydata$Nse,]
+mydata<-mydata[mydata$nB<=0.95*mydata$Nse,]
+plot.new()
+mythr<-0.00001
+mythr<-0.1
+library(ggplot2)
+dev.new()
+pdf("~/Dropbox/LDLD/ipynb/figs/coding1000g/LDLDpvalues_distr_signfdrfromT2_new.pdf")
+mydata2<-data.frame(values=c(mydata$pKuli,mydata$prho2,mydata$T2),groups=c(rep("pKuli",length(mydata$pKuli)),rep("prho2",length(mydata$prho2)),rep("T2",length(mydata$prho2))))
+ggplot(mydata2, aes(x=values, fill=groups)) +
+    geom_histogram(binwidth=.05, position="dodge")+theme_bw()
+dev.off()
+pdf("~/Dropbox/LDLD/ipynb/figs/coding1000g/LDLDpvalues_distr_zoom_signfdrfromT2_new.pdf")
+mythr<-0.0001
+mydata2<-data.frame(values=c(mydata$pKuli[mydata$pKuli<mythr],mydata$prho2[mydata$prho2<mythr],mydata$T2[mydata$T2<mythr]),groups=c(rep("pKuli",length(mydata$pKuli[mydata$pKuli<mythr])),rep("prho2",length(mydata$prho2[mydata$prho2<mythr])),rep("T2",length(mydata$T2[mydata$T2<mythr]))))
+ggplot(mydata2, aes(x=values, fill=groups)) +
+    geom_histogram(binwidth=mythr/30, position="dodge")+theme_bw()+xlim(0,0.0001)
+dev.off()
+#scatterplot of pvalues
+dev.new()
+library(cowplot)
+mysize<-3
+myplot<-ggplot(mydata,aes(x=mydata$T2,y=mydata$pKuli))+stat_binhex()+scale_fill_gradient(limits=c(1,10^8), low="white", high="cadetblue4",trans="log")+theme_bw()+theme(legend.position=c(0.75,0.25),legend.title=element_text(size=5),legend.text=element_text(size=5),legend.key.size=unit(0.2,"cm"))
+mytest<-cor.test(mydata$T2,mydata$pKuli)
+myplot1<-myplot+labs(x="T2",y="pKuli")+annotate("text",x=0.7,y=0.06,label=paste0("p-value=",mytest$p.value),cex=mysize,col="black")+annotate("text",x=0.7,y=0.01,label=paste0("rho=",round(mytest$estimate,digits=4)),cex=mysize,col="black")
+myplot<-ggplot(mydata,aes(x=mydata$T2,y=mydata$prho2))+stat_binhex()+scale_fill_gradient(limits=c(1,10^8), low="white", high="cadetblue4",trans="log")+theme_bw()+theme(legend.position="none")
+mytest<-cor.test(mydata$T2,mydata$rho2)
+myplot2<-myplot+labs(x="T2",y="prho2")+annotate("text",x=0.7,y=0.06,label=paste0("p-value=",mytest$p.value),cex=mysize,col="black")+annotate("text",x=0.7,y=0.01,label=paste0("rho=",round(mytest$estimate,digits=4)),cex=mysize,col="black")
+myplot<-ggplot(mydata,aes(x=mydata$T2,y=mydata$D1))+stat_binhex()+ylim(-0.0005,0.0005)+scale_fill_gradient(limits=c(1,10^8), low="white", high="cadetblue4",trans="log")+theme_bw()+theme(legend.position="none")
+mytest<-cor.test(mydata$T2[abs(mydata$D1)<1],abs(mydata$D1)[abs(mydata$D1)<1],na.rm=TRUE)
+myplot3<-myplot+labs(x="T2",y="D1")+annotate("text",x=0.7,y=-0.00035,label=paste0("p-value=",mytest$p.value),cex=mysize,col="black")+annotate("text",x=0.7,y=-0.00042,label=paste0("rho=",round(mytest$estimate,digits=4)),cex=mysize,col="black")
+toprow<-plot_grid(myplot1,myplot2,myplot3,align='h',labels=c('A','B','C'),ncol=3)
+myplot<-ggplot(mydata,aes(x=mydata$rho2,y=log(mydata$T2+10^(-16))))+stat_binhex()+scale_fill_gradient(limits=c(1,10^8), low="white", high="cadetblue4",trans="log")+theme_bw()+theme(legend.position="none")
+mytest<-cor.test(mydata$rho2,mydata$T2)
+myplot1<-myplot+labs(x="rho2",y="log(T2+10^-6)")+annotate("text",x=0.7,y=-1,label=paste0("p-value=",mytest$p.value),cex=mysize,col="black")+annotate("text",x=0.7,y=-3,label=paste0("rho=",round(mytest$estimate,digits=4)),cex=mysize,col="black")
+myplot<-ggplot(mydata,aes(x=mydata$rho2,y=log(mydata$pKuli+10^(-16))))+stat_binhex()+scale_fill_gradient(limits=c(1,10^8), low="white", high="cadetblue4",trans="log")+theme_bw()+theme(legend.position="none")
+mytest<-cor.test(mydata$rho2,mydata$pKuli)
+myplot2<-myplot+labs(x="rho2",y="log(pKuli+10^-6)")+annotate("text",x=0.7,y=-1,label=paste0("p-value=",mytest$p.value),cex=mysize,col="black")+annotate("text",x=0.7,y=-3,label=paste0("rho=",round(mytest$estimate,digits=4)),cex=mysize,col="black")
+myplot<-ggplot(mydata,aes(x=mydata$rho2,y=log(mydata$prho2+10^(-16))))+stat_binhex()+scale_fill_gradient(limits=c(1,10^8), low="white", high="cadetblue4",trans="log")+theme_bw()+theme(legend.position="none")
+mytest<-cor.test(mydata$rho2,mydata$rho2)
+myplot3<-myplot+labs(x="rho2",y="log(prho2+10^-6)")+annotate("text",x=0.7,y=-1,label=paste0("p-value=",mytest$p.value),cex=mysize,col="black")+annotate("text",x=0.7,y=-3,label=paste0("rho=",round(mytest$estimate,digits=4)),cex=mysize,col="black")
+bottomrow<-plot_grid(myplot1,myplot2,myplot3,align='h',labels=c('D','E','F'),ncol=3)
+pdf("~/Dropbox/LDLD/ipynb/figs/coding1000g/pvalues_scatter_signfdrfromT2.pdf")
+plot_grid(toprow,bottomrow,ncol=1,align='h')
+dev.off()
+#I checked well p-values and behave well. What I have to notice is that the values for which I have p-value 1 in pkuli and low in rho2 and T2 are those for which
+#I really have strange things happening, for example in chr1-chr10, 16890671	47000146, for which in all pops I have all heterozygotes.
+
+
+#==============================================================================================================v
+#cat /mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/anal/sorted.res | awk '{if (NF==23) {print}}' > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/anal/sorted2.res
+library(data.table)
+data2<-fread("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/anal/sorted2.res") #2G
+names(data2)<-c("chrA","chrB","posA","posB","dbsnpA","dbsnpB","nA","nB","Nse","nAB","nAA","nBB","D","D1","rho2","prho2","pfisher","pKuli","T2","Xtot","X","pop","popX")
+#data2<-read.table("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/anal/sorted2.res")
+#cat /mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/*minilog | grep ncomparisons > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/minilog2.tab
+#cat /mnt/scratch/fabrizio/LDLD/above95/coding1000g/new2/*minilog | grep ncomparisonspair > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/new2/minilog2.tab
+ncomppair<-read.table("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new2/minilog2.tab",header=FALSE)
+setwd("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/")
+ncomp<-read.table("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/minilog2.tab",header=FALSE)
+ncomppair
+
+mydata<-data2[data2$nA>=0.05*data2$Nse,]
+mydata<-mydata[mydata$nA<=0.95*mydata$Nse,]
+mydata<-mydata[mydata$nB>=0.05*mydata$Nse,]
+mydata<-mydata[mydata$nB<=0.95*mydata$Nse,]
+
+#I could ask: given that significant in one population, what's the chance of being sign in others
+#save(mydata,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/mypairs.RData")
+#load(mydata,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/mypairs.RData")
+
+rm(data2)
+
+data2_pop_T2fdr<-list()
+for (i in 1:12)
+{
+data2_pop_T2fdr[[i]]<-p.adjust(p=mydata$T2[mydata$pop==i], method = "fdr", n = sum(ncomp[,i+1])) 
+}
+data2_pop_T2fdr_sign<-list()
+#data.table saves your life, so much better, something like 1000 times faster!
+for (i in 1:12)
+{
+  tempdata<-mydata[mydata$pop==i][data2_pop_T2fdr[[i]]<0.05]
+  data2_pop_T2fdr_sign[[i]]<-tempdata[, paste(chrA,chrB,posA,posB,sep=".")]
+}
+#not very informative, I guess p-value would be more
+mymat<-matrix(0,nrow=12,ncol=12)
+for (i in 1:12)
+{
+  for (j in 1:12)
+  {
+  mymat[i,j]<-sum(as.numeric(!is.na(match(data2_pop_T2fdr_sign[[i]],data2_pop_T2fdr_sign[[j]]))))/length(data2_pop_T2fdr_sign[[i]])
+  }
+}
+#how to calculate p-value?
+#if I have same sets of pairs N where to start from, then I have:
+#ntotA and ntotB, nA and nB, prob that nA and nB overlap more than that. 
+#fisher's exact test as described in rpackages.ianhowson.com/bioc/GeneOverlap/man/GeneOverlap.html
+#I can do it in two ways,taking only pairs with same freq or all the ones I considered.
+#method A) considering all possible comparisons
+mymat<-matrix(0,nrow=12,ncol=12)
+mymat2<-matrix(0,nrow=12,ncol=12)
+for (i in 1:12)
+{
+  for (j in 1:12)
+  { 
+  print(c(i,j))
+  mynooverlap<-sum(ncomp[,13+1]) - length(union(data2_pop_T2fdr_sign[[j]],data2_pop_T2fdr_sign[[i]]))
+  myoverlap<-length(intersect(data2_pop_T2fdr_sign[[j]],data2_pop_T2fdr_sign[[i]]))
+  mynooverlapj<-length(setdiff(data2_pop_T2fdr_sign[[j]],data2_pop_T2fdr_sign[[i]]))
+  mynooverlapi<-length(setdiff(data2_pop_T2fdr_sign[[i]],data2_pop_T2fdr_sign[[j]]))
+  if (myoverlap!=0 && mynooverlapi==0 && mynooverlapj==0) {mymat[i,j]<-0; mymat2[i,j]<-Inf;} else 
+  if (myoverlap!=0) {
+    mytest<-fisher.test(matrix(c(mynooverlap,mynooverlapj,mynooverlapi,myoverlap),nrow=2))
+    mymat[i,j]<-mytest$p.value
+    mymat2[i,j]<-mytest$estimate} else {mymat[i,j]<-1; mymat2[i,j]<-1;}
+  }
+}
+poverlap.methodA.p.value<-mymat
+poverlap.methodA.odds<-mymat2
+save("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/mymat")
+
+#method B) considering only possible pairs for that pop comparisons
+mymat<-matrix(0,nrow=12,ncol=12)
+mymat2<-matrix(0,nrow=12,ncol=12)
+for (i in 1:12)
+{
+  tempi<-mydata[mydata$pop==i][data2_pop_T2fdr[[i]]<0.05]
+  tempi[,pairid:=data2_pop_T2fdr_sign[[i]]]
+#  data2_pop_T2fdr_sign[[i]]<-tempdata[, paste(chrA,chrB,posA,posB,sep=".")]
+  tempi<-tempi[0.05 <= tempi$nA/tempi$Nse & 0.95 >= tempi$nA/tempi$Nse,]
+  tempi<-tempi[0.05 <= tempi$nA/tempi$Nse & 0.95 >= tempi$nA/tempi$Nse,]  
+  for (j in 1:12)
+  { 
+  print(c(i,j))
+  tempj<-mydata[mydata$pop==j][data2_pop_T2fdr[[j]]<0.05]
+  tempj[,pairid:=data2_pop_T2fdr_sign[[j]]]
+#  data2_pop_T2fdr_sign[[i]]<-tempdata[, paste(chrA,chrB,posA,posB,sep=".")]
+  tempj<-tempj[0.05 <= tempj$nA/tempj$Nse & 0.95 >= tempj$nA/tempj$Nse,]
+  tempj<-tempj[0.05 <= tempj$nA/tempj$Nse & 0.95 >= tempj$nA/tempj$Nse,]  
+  mynooverlap<-sum(ncomp[,13+1]) - length(union(tempi$pairid,tempj$pairid))
+  myoverlap<-length(intersect(tempj$pairid,tempi$pairid))
+  mynooverlapj<-length(setdiff(tempj$pairid,tempi$pairid))
+  mynooverlapi<-length(setdiff(tempi$pairid,tempj$pairid))
+  if (myoverlap!=0 && mynooverlapi==0 && mynooverlapj==0) {mymat[i,j]<-0; mymat2[i,j]<-Inf;} else 
+  if (myoverlap!=0) {
+    mytest<-fisher.test(matrix(c(mynooverlap,mynooverlapj,mynooverlapi,myoverlap),nrow=2))
+    mymat[i,j]<-mytest$p.value
+    mymat2[i,j]<-mytest$estimate} else {mymat[i,j]<-1; mymat2[i,j]<-1;}
+  }
+}
+
+
+data2_pop_T2fdr_sign[[1]]
+save("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/mymat")
+}
+#this section above in my laptop at home
+#================================================================================================^
+#===============IDENTIFYING SIGNIFICANT PAIRS BASED ON EMPIRICAL DISTRIBUTION====================
+#================================================================================================
+if (FALSE)
+{
+load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/combined_pval.RData")    
+load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/fullsign.RData") 
+combined_pval_sign<-combined_pval
+combined_fdr_sign<-fullsign$combined_fdr
+index_focal_pop<-7 #now I used 7 because I was looking at FINs but I guess in general it would be safer to have 0
+nperm<-1
+reschr_count<-rep(0,nperm)
+combined_pval_l<-list()
+for (myperm in 1:nperm)
+    {
+    data<-fread(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/reschr",myperm,"/anal/sorted.res"))
+#    data<-read.table(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/reschr",myperm,"/anal/sorted.res"))
+    names23<-c("chrA","chrB","posA","posB","dbsnpA","dbsnpB","nA","nB","Nse","nAB","nAA","nBB","D","D1","rho2","prho2","pfisher","pKuli","T2","Xtot","X","pop","popX")
+    names20<-c("chrA","chrB","posA","posB","dbsnpA","dbsnpB","nA","nB","Nse","nAB","nAA","nBB","D","D1","rho2","T2","Xtot","X","pop","popX")
+    #names(data)<-mynames #if data.frame
+    setnames(data,names23)
+    if (dim(data)[2]==20){names(data)<-names20} else if (dim(data)[2]==23){names(data)<-names23}
+    system(paste0("cat /mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/reschr",myperm,"/*minilog | grep ncomparisons | awk '{print $14}' > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/reschr",myperm,"/ncomparisons.txt"))
+    ncomp<-read.table(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/reschr",myperm,"/ncomparisons.txt"),header=FALSE)
+    ncomp<-sum(ncomp$V1)
+    dataFIN<-subset(data,data$pop==index_focal_pop)
+    combined_pval<-dchisq(dataFIN$X,df=2*dataFIN$popX)    
+    combined_fdr<-p.adjust(p=combined_pval, method = "fdr", n = ncomp) #not the best approach because like this I have all pairs. This is why probably at the beginning I was using a smaller cutoff.
+    fullsign_reschr<-cbind(dataFIN,combined_fdr)[combined_fdr<0.05,]
+    combined_pval_l[[myperm]]<-combined_pval
+    reschr_count[myperm]<-dim(fullsign_reschr)[1]
+    }
+
+empfdr<-empiricall_fdr(combined_pval_sign,unlist(combined_pval_l),nperm)
+save(empfdr,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/empfdr.RData")
+load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/empfdr.RData")
+length(empfdr[empfdr<0.05])#64670
+plot(empfdr,type="l",xlab="index",ylab="fdr")
+pdf("~/Dropbox/LDLD/ipynb/figs/coding1000g/new/empfdrvsT2.pdf")
+plot(combined_fdr_sign[order(combined_fdr_sign)],type="l",xlab="index",ylab="fdr",xlim=c(1,200000),col="cadetblue",lwd=2.5)
+lines(empfdr,col="gold",lwd=2.5)
+abline(h=0.05,col="black",lty=2,lwd=2.5)
+legend(0,0.03,c("T2 fdr","T2 empirical"), # places a legend at the appropriate place c(“Health”,”Defense”), # puts text in the legend
+lty=c(1,1), # gives the legend appropriate symbols (lines)
+lwd=c(2.5,2.5),col=c("cadetblue","gold"))
+dev.off()
+#NB: empirical curves obtained with #new (high res scan) and the lower resolution one are exactly the same, just that now I can explore higher fdr (that is useless anyway, apart for this plot)
+
+pdf("~/Dropbox/LDLD/ipynb/figs/coding1000g/new/empfdrvsT2_hist.pdf")
+hist(log(combined_pval_sign[combined_pval_sign<0.05]+10^(-20),10),breaks=25,col="gold",main="T2 vs T2 reshuffled",xlim=c(-20,-5),xlab="log(pvalue(T2)+10^-20)")
+hist(log(combined_pval_l[[1]][combined_pval_l[[1]]<0.05]+10^(-20),10),breaks=25,col="cadetblue",add=TRUE,xlim=c(-20,-5))
+dev.off()
+
+signAbed<-as.data.frame(cbind(as.character(paste0('chr',fullsign$chrA)),fullsign$posA-1,fullsign$posA),stringsAsFactors =FALSE)
+signBbed<-as.data.frame(cbind(as.character(paste0('chr',fullsign$chrB)),fullsign$posB-1,fullsign$posB),stringsAsFactors =FALSE)
+names(signAbed)<-c("chr","start","end")
+names(signBbed)<-c("chr","start","end")
+signAbed$start<-as.numeric(signAbed$start)
+signAbed$end<-as.numeric(signAbed$end)
+signBbed$start<-as.numeric(signBbed$start)
+signBbed$end<-as.numeric(signBbed$end)
+#create logos
+write.table(signAbed,file="above95/coding1000g/new/anal/snpsA.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+write.table(signBbed,file="above95/coding1000g/new/anal/snpsB.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+
+#calculate empirical distribution also on the basis of pKuli and prho2
+combined_pval_sign<-combined_pval
+combined_prho2pval_sign<-combined_prho2pval
+combined_pKulipval_sign<-combined_pKulipval
+combined_fdr_sign<-combined_fdr
+
+combined_pvalT2_l<-list()
+combined_pvalprho2_l<-list()
+combined_pvalpKuli_l<-list()
+#for coding low res
+#{
+#nperm<-4
+#reschr_count<-rep(0,nperm)
+#for (myperm in 2:nperm)
+#}
+nperm<-1
+reschr_count<-rep(0,nperm)
+for (myperm in 1:nperm)
+    {
+    data.reshuffled<-fread(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/reschr",myperm,"/anal/sorted.res"))
+    names23<-c("chrA","chrB","posA","posB","dbsnpA","dbsnpB","nA","nB","Nse","nAB","nAA","nBB","D","D1","rho2","prho2","pfisher","pKuli","T2","Xtot","X","pop","popX")
+    setnames(data.reshuffled,names23)
+#    system(paste0("cat /mnt/scratch/fabrizio/LDLD/above95/coding1000g/reschr",myperm,"/*minilog | grep ncomparisons | awk '{print $14}' > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/reschr",myperm,"/ncomparisons.txt"))
+    ncomp<-read.table(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/reschr",myperm,"/ncomparisons.txt"),header=FALSE)
+    ncomp<-sum(ncomp$V1)
+    dataFIN<-subset(data.reshuffled,data.reshuffled$pop==7)
+    combined_pval<-dchisq(dataFIN$X,df=2*dataFIN$popX)    
+    combined_fdr<-p.adjust(p=combined_pval, method = "fdr", n = ncomp) #not the best approach because like this I have all pairs. This is why probably at the beginning I was using a smaller cutoff.
+    fullsign_reschr<-cbind(dataFIN,combined_fdr)[combined_fdr<0.05,]
+    combined_pvalT2_l[[myperm]]<-combined_pval
+    reschr_count[myperm]<-dim(fullsign_reschr)[1]
+    mydata<-data.reshuffled[data.reshuffled$nA>=0.05*data.reshuffled$Nse,]
+    mydata<-mydata[mydata$nA<=0.95*mydata$Nse,]
+    mydata<-mydata[mydata$nB>=0.05*mydata$Nse,]
+    mydata<-mydata[mydata$nB<=0.95*mydata$Nse,]
+    pairid<-mydata[, paste(chrA,chrB,posA,posB,sep=".")]
+#    mydata[,pairid:=pairid]
+    combined_prho2pval<-aggregate(mydata$prho2,by=list(pairid),FUN=function(x) 1-pchisq(-2*log(prod(x)),df=2*length(x)))
+    combined_pKulipval<-aggregate(mydata$pKuli,by=list(pairid),FUN=function(x) 1-pchisq(-2*log(prod(x)),df=2*length(x)))
+    combined_prho2fdr<-p.adjust(p=combined_prho2pval[,2], method = "fdr", n = ncomp) 
+    combined_pKulifdr<-p.adjust(p=combined_pKulipval[,2], method = "fdr", n = ncomp) 
+    combined_pvalprho2_l[[myperm]]<-combined_prho2pval
+    combined_pvalpKuli_l[[myperm]]<-combined_pKulipval
+    }
+
+mypvalues<-cbind(combined_prho2pval,combined_pKulipval[,2],combined_prho2fdr,combined_pKulifdr)
+sum(as.numeric(combined_prho2fdr<0.05))
+sum(as.numeric(combined_pKulifdr<0.05))
+#sum(as.numeric(combined_T2fdr<0.05))
+
+#for low res
+#empfdr_pKuli<-empiricall_fdr(mypvalues[,3],c(combined_pvalpKuli_l[[2]][,2],combined_pvalpKuli_l[[3]][,2],combined_pvalpKuli_l[[4]][,2]),3)
+#empfdr_prho2<-empiricall_fdr(mypvalues[,2],c(combined_pvalprho2_l[[2]][,2],combined_pvalprho2_l[[3]][,2],combined_pvalprho2_l[[4]][,2]),3)
+#for high res
+empfdr_pKuli<-empiricall_fdr(mypvalues[,3],c(combined_pvalpKuli_l[[1]][,2]),1)
+empfdr_prho2<-empiricall_fdr(mypvalues[,2],c(combined_pvalprho2_l[[1]][,2]),1)
+
+save(empfdr_pKuli,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/empfdrpKuli.RData")
+save(empfdr_prho2,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/empfdrprho2.RData")
+
+myempfdr<-c(sum(as.numeric(empfdr<0.05)),sum(as.numeric(empfdr_pKuli<0.05)),sum(as.numeric(empfdr_prho2<0.05)))
+myfdr<-c(sum(as.numeric(combined_T2fdr<0.05)),sum(as.numeric(combined_pKulifdr<0.05)),sum(as.numeric(combined_prho2fdr<0.05)))
+mymat<-rbind(myempfdr,myfdr)
+colnames(mymat)<-c("T2","pKuli","prho2")
+pdf("~/Dropbox/LDLD/ipynb/figs/coding1000g/empfdr_vs_theoreticalfdr_hist.pdf")
+barplot(mymat,beside=TRUE,col=c("floralwhite","azure3"),ylab="count")
+legend("topright",fill=c("floralwhite","azure3"), legend=c("empirical","theoretical"))
+dev.off()
+}
+#================================================================================================^
+#===============PER SAMPLE ANALYSES: IDENTIFYING BIASES==========================================
+#================================================================================================
+setwd("~/Dropbox/LDLD")
+source("~/Dropbox/LDLD/analysesLDLD_header.R")
+options(scipen=999)
+setwd("/mnt/scratch/fabrizio/LDLD")
+#---import files--------------------------------------------------------------------------------------v
+#import infosamples
+if (TRUE)
+{
+info1000g<-read.table("/mnt/scratch/fabrizio/LDLD/20130606_sample_info.txt",header=TRUE,sep='\t')
+samples1000g<-system("zcat /mnt/sequencedb/1000Genomes/ftp/phase3/20140910/ALL.chr22.phase3_shapeit2_mvncall_integrated_v5.20130502.genotypes.vcf.gz | 
+head -300 | grep '#CHROM' | head -1 | awk '{for (i=10; i<=NF; i++) print $i}'",intern=TRUE)
+samplesabove95<-system("cat ~/workspace/1000genomes/above95.unrelated.samples",intern=TRUE)
+nspops<-as.numeric(system("cat /mnt/scratch/fabrizio/LDLD/nspops.txt",intern=TRUE))
+samples_order1000g_above95<-intersect(samplesabove95,samples1000g)
+infosamples<-lapply(1:12,function(x) c())
+for (i in 1:12)
+{
+  mysamples<-samples_imypop(samples_order1000g_above95,nspops,i)
+  infosamples[[i]]<-info1000g[match(mysamples,info1000g$Sample),]
+}
+popsamplesi<-sapply(1:12,function(x) samples_imypopi(nspops,x))
+}
+#import other files
+if (TRUE)
+{
+#system("cat above95/coding1000g/chr*.tabchr*.minilog | grep nAB_above_freq_threshold | grep -v and_significant > above95/coding1000g/tot.nABabovethr")
+#system("cat above95/coding1000g/chr*.tabchr*.minilog | grep nAB_above_freq_threshold | grep and_significant > above95/coding1000g/tot.nABabovethrsign")
+#mylog2<-read.table("above95/coding1000g/tot.nABabovethr")
+#mylog2<-sapply(2:dim(mylog2)[2],function(x) sum(mylog2[,x]))
+#mylog3<-read.table("above95/coding1000g/tot.nABabovethrsign")
+#mylog3<-sapply(2:dim(mylog3)[2],function(x) sum(mylog3[,x]))
+#-------------------- create whole genome log file -----------------------------
+#for (i in 0:11)
+#{
+#  system(paste0("cat above95/coding1000g/chr*.log | awk '{if ($NF==",i,"){print}}' > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/all.pop",i,".log"))
+#}
+#-------------------- create whole genome log file by chr ----------------------#to revisit.wonder why in some cases a link is not reported in some pops
+#system(paste0("mkdir above95/coding1000g/logs"))
+#for (ipop in 0:11)
+#  {
+#  for (ichrA in 1:21)
+#    {
+#   for (ichrB in (ichrA+1):22)
+#	{
+#	system(paste0("cat above95/coding1000g/chr",ichrA,".tabchr",ichrB,".tab.log > above95/coding1000g/logs/chr",ichrA,".",ichrB,".pop",ipop,".log")) 
+#	}
+#    }
+#  }
+#for (i in 0:11)
+#{
+#  system(paste0("cat above95/coding1000g/logs/chr*.",i,".log | awk '{if ($NF==",i,"){print}}' > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/logs/all.pop",i,".log"))
+#}
+#-------------------- create whole genome freqlog file (genotype per sample) ---
+#rm /mnt/scratch/fabrizio/LDLD/above95/coding1000g/all.freqlog
+#for i in `seq 1 22`; do 
+#cat above95/coding1000g/chr$i.freqlog | awk -v FS='\t' -v OFS='\t' -v CHR=$i '{if (NR>1){print CHR,$0}}' >> /mnt/scratch/fabrizio/LDLD/above95/coding1000g/all.freqlog
+#done
+#-------------------- creates polymorphism per individual (mutlog) file (old) --
+#cat ~/workspace/1000genomes/20130606_sample_info.txt | sed s/$'\t\t'/$'\t'NA$'\t'/g > /mnt/scratch/fabrizio/LDLD/20130606_sample_info.txt
+#for i in `seq 1 22`; do 
+#./filter.out above95/coding1000g/chr$i.tab above95/coding1000g/chr$i.tab.mutlog 0.05 1220 & 
+#done
+#--------------------- creates polymorphism per individual (mutlog) file (newer)   ------------------v
+#for i in `seq 1 22`; do 
+#./filterbyfreq.out above95/coding1000g/chr$i.tab above95/coding1000g/chr$i.freqlog above95/coding1000g/chr$i.tab.mutlog 0.05 1220 & 
+#done
+#system("cat above95/coding1000g/chr*.tab.mutlog > above95/coding1000g/tot.mutlog")
+for (i in 1:22)
+{
+if (i==1){mutperssample<-as.numeric(read.table(paste0("above95/coding1000g/chr",i,".tab.mutlog")))}
+else {res2<-as.numeric(read.table(paste0("above95/coding1000g/chr",i,".tab.mutlog")));mutperssample<-rbind(mutperssample,res2)}
+}
+l_mutsamples<-lapply(1:12,function(x) c())
+for (i in 1:12)
+{
+  l_mutsamples[[i]]<-apply(mutperssample[,samples_imypopi(nspops,i)],2,sum)
+}
+}
+#----------------------------------------------------------------------------------------------------^
+#=======================
+#done by taking only significant links
+#=======================
+#->log tables with only significant links
+load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/dataFIN.RData")
+load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/new/empfdr.RData")
+dataFIN[empfdr<0.05,]
+dim(dataFIN)
+length(empfdr)
+
+#=======================
+#done by taking significance threshold 
+#=======================
+load("LDLD170216.RData")
+#load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/logpoptot_fromfilelog.RData") #now I changed absolute path
+load("logpoptot_fromfilelog.RData")
+
+par(mfrow=c(1,1))
+if (FALSE) #nAB explains differences in mutational load
+{
+length(l_mutsamples[[1]])
+mylogpop_rel<-c()
+mymutsamples_rel<-c()
+for (i in 1:12)
+{
+mylogpop_rel<-c(mylogpop_rel,logpop[[i]][[1]]/mean(logpop[[i]][[1]]))
+mymutsamples_rel<-c(mymutsamples_rel,l_mutsamples[[i]]/mean(l_mutsamples[[i]]))
+}
+pdf("~/Dropbox/LDLD/ipynb/figs/coding1000g/nABvsnA.pdf")
+mytest<-cor.test(mymutsamples_rel,mylogpop_rel)
+plot(mylogpop_rel,mymutsamples_rel,pch=19,col="darkblue",xlab="nAB",ylab="nA")
+reg1 <- lm(mymutsamples_rel~mylogpop_rel)
+abline(reg1,lwd=2,col="red" )
+text(4,1.1,labels=paste0("r=",mytest$estimate))
+text(4,1.07,labels=paste0("p.value=",mytest$p.value))
+dev.off()
+
+length(l_mutsamples[[1]])
+mylogpop_rel<-c()
+mymutsamples_rel<-c()
+
+#always increase by definition if I increase exponent, and anyway small difference, so it does not really make sense changing everything to have it squared.
+#anyway check again being sure that mutations are global per individual while nAB only from significant, otherwise a bit trivial that for those there are more.
+i<-2
+cor.test(logpop[[i]][[1]],l_mutsamples[[i]])
+cor.test(logpop[[i]][[1]],l_mutsamples[[i]]^2) 
+
+for (i in 1:12)
+{
+mylogpop_rel<-c(mylogpop_rel,logpop[[i]][[1]]/mean(logpop[[i]][[1]]))
+mymutsamples_rel<-c(mymutsamples_rel,l_mutsamples[[i]]/mean(l_mutsamples[[i]]))
+}
+
+
+
+#Furthermore as well as more variance mutational load in pops with more linkage uneveness!!!
+sd(l_mutsamples[[3]])/mean(l_mutsamples[[3]])
+sd(l_mutsamples[[5]])/mean(l_mutsamples[[5]])
+sd(l_mutsamples[[1]])/mean(l_mutsamples[[1]])
+sd(l_mutsamples[[8]])/mean(l_mutsamples[[8]])
+sd(l_mutsamples[[4]])/mean(l_mutsamples[[4]])
+sd(l_mutsamples[[12]])/mean(l_mutsamples[[12]])
+}
+
+#Developing null distribution for nAB clustering-------------------------------v
+if (FALSE)
+{
+#-Thoughts on block separations:
+#Other solution is using pairs of chromosome as independent blocks. This is conservative in finding differences between distributions. 
+#However, it should still have the power.
+#Also, should I consider the contribution like I do now, just sum. Well, it depends on the way of permuting it. If this way it is fine.
+#see it like that however: when many pairs most likely I have enough power to consider even chromosomes as single blocks.
+#when lower amount of pairs, separating becomes meaningful.
+
+#elements in contingency tables (logpoptot)
+mylog<-read.table(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/logs/all.pop0.log")) #any pop is the same->to fix
+
+myblocks<-create_blocks(mylog)
+permbychr<-permute_chrAB_byblock(mylog,myblocks,100000)
+myblocks2<-create_blocks(mylog,space_between_indep_blocks=1000000)
+permbychrblocks2<-permute_chrAB_byblock(mylog,myblocks2,100000)
+#save.image("permbychrblocks2.RData")
+str(permbychrblocks)
+sum(permbychrblocks2[,1]) #428177
+sum(permbychr[,1]) #428177
+var(permbychr[,1]) #137336.6
+var(permbychrblocks2[,1]) #9129.772
+#as expected less variance in fragmenting more
+}
+
+setwd("/mnt/scratch/fabrizio/LDLD")
+load("nulldistr1iteration.RData")
+load("permbychrblocks2.RData")
+load("permbychr.RData")
+load("logpop_fromfilelog.RData")
+#always reload last version of functions in analysesLDLD_header.R after loading workspace images
+source("~/Dropbox/LDLD/analysesLDLD_header.R") 
+
+#Developing test for null distribution
+if (FALSE)
+{
+#ok, so let's say that in case of this population we want to go forward in removing individuals
+
+#system.time(permbychr<-permute_chrAB(mylog,10000)) #   user   system  elapsed 3885.680    0.410 3886.155
+#save.image("permbychr.RData")
+head(permbychr)
+for (i in 1:10000)
+{permbychr[,i]<-permbychr[,i][order(permbychr[,i])]}
+for (i in 1:10000)
+{permbychrblocks2[,i]<-permbychrblocks2[,i][order(permbychrblocks2[,i])]}
+
+mydata<-permbychr[,1]
+sum(permbychr[,10000]) #428177
+#system.time(nulldistr1iteration<-generate_nulldistr_mixtures(permbychr,1000)) #time 448.160
+#save(nulldistr1iteration,file="nulldistr1iteration.RData")
+head(as.numeric(nulldistr1iteration[,1]))
+head(as.numeric(nulldistr1iteration[,2]))
+head(as.numeric(nulldistr1iteration[,3]))
+head(as.numeric(nulldistr1iteration[,4]))
+
+#compare value with distribution
+setwd("~/Dropbox/LDLD")
+source("analysesLDLD_header.R")
+mypop<-partition_samples_nAB(logpop[[1]][[1]])[c(1,4,7,8)]
+setwd("/mnt/scratch/fabrizio/LDLD")
+sum(as.numeric(as.numeric(nulldistr1iteration[,1])>=mypop[1]))/1000 # 0.053 it seems that by taking only number of groups, both with LR and AIC I don't even get significant, although almost
+sum(as.numeric(as.numeric(nulldistr1iteration[,2])>=mypop[2]))/1000 # 0.115
+sum(as.numeric(as.numeric(nulldistr1iteration[,3])<=mypop[3]))/1000 # 0 instead by taking p-values or RL I get extremely significant.
+sum(as.numeric(as.numeric(nulldistr1iteration[,4])<=mypop[4]))/1000 #0
+
+system.time(testfull<-test_nulldistr_mixtures(12,1000,logpoptot,logpop,myblocks))
+#save(testfull,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/testfull.RData")
+}
+load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/testfull.RData")
+#plot tests and infoplots
+if (FALSE)
+{
+sapply(1:12,function(x) testfull[[x]]$pval_sd)
+sapply(1:12,function(x) testfull[[x]]$pval_nLR)
+sapply(1:12,function(x) testfull[[x]]$pval_nAIC)
+sapply(1:12,function(x) testfull[[x]]$pval_pLR)
+sapply(1:12,function(x) testfull[[x]]$pval_pAIC)
+
+
+library(vioplot)
+pdf("~/Dropbox/LDLD/ipynb/figs/coding1000g/empiricaldistrperm_pop1.pdf")
+par(mfrow=c(2,2))
+permvar<-sapply(1:10000,function(x) var(permbychr[,x]))
+hist(log(permvar),xlim=c(log(min(permvar)),log(max(max(permvar),var(logpop[[1]][[1]]))+10)),col="gray")
+abline(v=log(var(logpop[[1]][[1]])),col="red",lwd=1.5)
+mypop<-partition_samples_nAB(logpop[[1]][[1]])[c(1,4,7,8)]
+hist(as.numeric(nulldistr1iteration[,1]),breaks=0:6,main="nblocks LR 1000 permutations",xlab="nblocks",col="gray")
+abline(v=as.numeric(mypop[1])-0.5,col="red",lwd=1.5)
+hist(as.numeric(nulldistr1iteration[,3]),breaks=50,main="LR 1000 permutations",xlab="pvalue LR",col="gray")
+abline(v=as.numeric(mypop[3]),col="red",lwd=1.5)
+hist(as.numeric(nulldistr1iteration[,4]),breaks=50,main="RL AICc 1000 permutations",xlab="RL",col="gray")
+abline(v=as.numeric(mypop[4]),col="red",lwd=1.5)
+dev.off()
+
+par(mfrow=c(1,1))
+pdf("~/Dropbox/LDLD/ipynb/figs/coding1000g/empiricaldistrperm_nAB_pop1.pdf")
+vioplot(permbychr[1,],permbychr[10,],permbychr[20,],permbychr[30,],permbychr[40,],permbychr[50,],permbychr[60,],permbychr[70,],permbychr[80,],permbychr[90,],permbychr[100,],permbychr[106,],ylim=c(0,25000),col="firebrick",colMed="firebrick2")
+vioplot(permbychrblocks2[1,],permbychrblocks2[10,],permbychrblocks2[20,],permbychrblocks2[30,],permbychrblocks2[40,],permbychrblocks2[50,],permbychrblocks2[60,],permbychrblocks2[70,],permbychrblocks2[80,],permbychrblocks2[90,],permbychrblocks2[100,],permbychrblocks2[106,],add=TRUE,col="cadetblue3",colMed="cadetblue4")
+mypop<-logpop[[1]][[1]][order(logpop[[1]][[1]])]
+points(c(mypop[1],mypop[10],mypop[20],mypop[30],mypop[40],mypop[50],mypop[60],mypop[70],mypop[80],mypop[90],mypop[100],mypop[106]),pch=19,col="darkblue")
+dev.off()
+
+cdat <- as.list(as.data.frame(t(as.matrix(permbychr))))
+names(cdat)[1] <- "x"  # vioplot() needs the first element to be called 'x'
+do.call(vioplot,c(cdat,list(col="firebrick",colMed="firebrick",add=TRUE)))
+
+load("LDLD170216.RData")
+setwd("~/Dropbox/LDLD")
+source("analysesLDLD_header.R")
+if (FALSE)
+{
+    par(mfrow=c(1,1))
+    for (i in 1:12)
+    {
+        pdf(paste0("~/Dropbox/LDLD/ipynb/figs/coding1000g/logplot",i,".pdf"))
+        infoplot(i,mymaxk=5,reshufflings=testfull[[i]]$raw)
+        dev.off()
+    }
+    pdf("logplot_panel.pdf")
+    par(mfrow=c(2,2))
+    for (i in 1:4)
+        {
+        infoplot(i)
+        }
+    dev.off()
+}
+}
+#================================================================================================^
+#===============PER SAMPLE PER SNP ANALYSES: IDENTIFYING BIASED SNPs -> removal1 ================
+#================================================================================================
+#from log files. One possibility is to use function logpop2gen, that goes from log files to gen files, with 0 1 and 2 for homozygotes
+#Otherwise, one can use a similar procedure as attached below. However very slow. 
+#Therefore I recommend using all.freqlog files generated in C++ (see above in command line comments "create whole genome freqlog file".)
+#
+if (FALSE)
+{
+
+if (FALSE)  
+{
+  resres<-list()
+  for (i in 10:10)
+  {
+    counter<-1
+    for (ichrA in 1:21)
+      {
+      for (ichrB in (ichrA+1):22)
+	{
+	print(c(i,ichrA,ichrB))
+	myn=as.numeric(system(paste0("head -12 above95/coding1000g/chr",ichrA,".tabchr",ichrB,".tab.log | awk '{if ($NF==",i,"){print NF}}'"),intern=TRUE))
+	if (length(myn)<1) {myn=as.numeric(system(paste0("head -24 above95/coding1000g/chr",ichrA,".tabchr",ichrB,".tab.log | awk '{if (NR>12 && $NF==",i,"){print NF}}'"),intern=TRUE))}
+	system(paste0("cat above95/coding1000g/chr",ichrA,".tabchr",ichrB,".tab.log | awk '{if ($NF==",i," && NF==",myn,"){print}}' > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/all.pop.temp.log"))
+	logsnp<-read.table("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/all.pop.temp.log",header=FALSE)
+	logsnp$chrA<-ichrA
+	logsnp$chrB<-ichrB
+	if (counter==1) {res<-logsnp} else {res<-rbind(res,logsnp)}
+	if (ichrA==21 && ichrB==22) {resres[[i+1]]<-res}
+	counter<-counter+1
+	}
+      }
+  }
+}
+                   
+#load all.freqlog file
+resres<-read.table("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/all.freqlog")
+resresnames<-paste0(resres[,1],".",resres[,2])
+length(resres)
+rress<-list()
+for (i in 1:12)
+{
+rress[[i]]<-resres[,samples_imypopi(nspops,i)+2] #2*i comes from chr and pos fields
+}
+snpsnames<-sapply(1:dim(resres)[1],function(x) paste0(resres[x,1:2],collapse="."))
+resres<-rress
+rm(rress)
+head(resres[[1]])
+
+resres<-read.table("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/all.freqlog")
+resresnames<-paste0(resres[,1],".",resres[,2])
+load("fullsign.RData")
+fullsign_snps<-unique(paste0(c(fullsign[,1],fullsign[,2]),".",c(fullsign[,3],fullsign[,4])));
+length(fullsign_snps)
+resres_fullsign<-list()
+for (ipop in 1:12)
+    {
+    resres_fullsign[[ipop]]<-subset(resres[[ipop]],!is.na(match(resresnames,fullsign_snps))) #only significant    
+    }
+#identify biased SNPs 
+#(SNPs mostly present in nAB rich individuals)
+
+tempres<-corr_nAvsnAB(resres,logpop,l_mutsamples) #this is done by looking at all SNPs.
+tempres_sign<-corr_nAvsnAB(resres_fullsign,logpop,l_mutsamples,snpsnames=fullsign_snps) #this is done by looking only at SNPs that are linked.
+#save.image("resres_complete.RData")
+
+load("resres_complete.RData")
+
+#more or less the same number of biased snps from first filtering in a way or the other. Difference might become
+#more important when less total significant SNPs are considered
+dim(tempres)
+dim(tempres_sign)
+dim(tempres[tempres[,3]<=0.05,])
+dim(tempres[tempres[,2]<=0.05,])
+removed_snps<-tempres[tempres[,3]<=0.05,]
+#dim(tempres_sign[tempres_sign[,3]<=0.05,])
+#dim(tempres_sign[tempres_sign[,2]<=0.05,])
+#removed_snpssign<-tempres_sign[tempres_sign[,3]<=0.05,]
+
+#create BED file with removed snps
+write.table(stringsnp2bed(removed_snps),file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/removed1.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE)
+
+}
+if (FALSE)
+{
+  for (mychr in 1:22)
+  {
+  system(paste0("bedtools intersect -v -b /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removed1.bed -a /mnt/scratch/fabrizio/LDLD/above95/coding1000g/chr",mychr,".tab -header | gzip > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/chr",mychr,".coding.vcf.gz"))
+  }
+  rm /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removed.bed
+  touch /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removed.bed
+  for i in `seq 1 22`; do 
+  echo $i
+  zcat /mnt/sequencedb/ucsc/goldenPath/hg19/snp142.bed.gz | grep chr$i$'\t' > /mnt/scratch/fabrizio/LDLD/temp.bed
+  bedtools intersect -a <(sort -Vu -k1,1 -k2,2 /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removed1.bed | sed 's/^/chr/g' | grep chr${i}) -b <(sort -Vu -k1,1 -k2,2 /mnt/scratch/fabrizio/LDLD/temp.bed | grep chr${i} ) -sorted -wb | awk -v OFS='\t' '{print $4,$5,$6,$7}' >>  /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removed.bed
+  done
+  #bedtools intersect -a <(cat /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removed1.bed | sed 's/^/chr/g') -b /mnt/sequencedb/ucsc/goldenPath/hg19/snp142.bed.gz -sorted | awk -v OFS='\t' '{print $4,$5,$6,$7}' >  /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removed.bed
+}
+
+#table comparing tests before and after removal
+if (FALSE)
+{
+library(xtable)
+load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/testfull.RData")
+testfull_mat<-rbind(popnames,
+c("p.sd",sapply(1:12,function(x) testfull[[x]]$pval_sd)),
+c("p.nLR",sapply(1:12,function(x) testfull[[x]]$pval_nLR)),
+c("p.nAIC",sapply(1:12,function(x) testfull[[x]]$pval_nAIC)),
+c("p.pLR",sapply(1:12,function(x) testfull[[x]]$pval_pLR)),
+c("p.pAIC",sapply(1:12,function(x) testfull[[x]]$pval_pAIC)))
+
+load("removal1_test_bis.RData")
+test_removal1_mat<-rbind(popnames,
+c("p.sd",sapply(1:12,function(x) test_removal1[[x]]$pval_sd)),
+c("p.nLR",sapply(1:12,function(x) test_removal1[[x]]$pval_nLR)),
+c("p.nAIC",sapply(1:12,function(x) test_removal1[[x]]$pval_nAIC)),
+c("p.pLR",sapply(1:12,function(x) test_removal1[[x]]$pval_pLR)),
+c("p.pAIC",sapply(1:12,function(x) test_removal1[[x]]$pval_pAIC)))
+
+xtable(testfull_mat)
+xtable(test_removal1_mat)
+}
+#==================================================================================
+#=============================ANALYSES after removal1==============================
+#==================================================================================
+#load
+if (TRUE)
+{
+setwd("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/")
+data<-read.table("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/anal/sorted2.res")
+names(data)<-c("chrA","chrB","posA","posB","dbsnpA","dbsnpB","nA","nB","Nse","nAB","nAA","nBB","D","D1","rho2","prho2","pfisher","pKuli","T2","Xtot","X","pop","popX")
+#system("cat /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/*minilog | grep ncomparisons | awk '{print $14}' > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/ncomparisons.txt")
+ncomp<-read.table("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/ncomparisons.txt",header= FALSE )
+ncomp<-sum(ncomp$V1)
+dataFIN<-subset(data,data$pop==7)
+dataFIN$popX[dataFIN$popX==999]<-1
+combined_fdr<-p.adjust(p=dchisq(dataFIN$X,df=2*dataFIN$popX), method = "fdr", n = ncomp) #not thebest approach because like this I have all pairs. This is why probably at the beginning I was using a smaller cutoff.
+length(combined_fdr)
+dim(dataFIN)
+dim(data)
+fullsign<-cbind(dataFIN,combined_fdr)[combined_fdr<0.05,]
+#save(fullsign,file="/mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/fullsign.RData")
+#in early code called sign
+rm(data,dataFIN)
+dim(fullsign)
+#str(fullsign)
+#rm(chrA,chrB)
+signAbed<-as.data.frame(cbind(as.character(paste0('chr',fullsign$chrA)),fullsign$posA-1,fullsign$posA),stringsAsFactors = FALSE )
+signBbed<-as.data.frame(cbind(as.character(paste0('chr',fullsign$chrB)),fullsign$posB-1,fullsign$posB),stringsAsFactors = FALSE )
+names(signAbed)<-c("chr","start","end")
+names(signBbed)<-c("chr","start","end")
+signAbed$start<-as.numeric(signAbed$start)
+signAbed$end<-as.numeric(signAbed$end)
+signBbed$start<-as.numeric(signBbed$start)
+signBbed$end<-as.numeric(signBbed$end)
+removal1_combined_fdr<-combined_fdr
+}
+#remove biased snps
+if (TRUE)
+{
+fullsign_snps<-unique(paste0(c(fullsign[,1],fullsign[,2]),".",c(fullsign[,3],fullsign[,4])));
+length(fullsign_snps)
+resres_fullsign<-list()
+for (ipop in 1:12)
+{
+resres_fullsign[[ipop]]<-subset(removal1_resresgen[[ipop]],!is.na(match(resresnames,fullsign_s
+nps))) #only significant
+}
+
+#remove snps that contribute the most to nAB
+removal1_removesnps<-corr_nAvsnAB(removal1_resresgen,logpop,l_mutsamples)
+removal1_removesnps_sign<-corr_nAvsnAB(resres_fullsign,logpop,l_mutsamples,snpsnames=fullsign_snps)
+#save(removal1_removesnps,file="removal1_removesnps.RData")
+#save(removal1_removesnps_sign,file="removal1_removesnps_sign.RData")
+
+
+#load("~/Dropbox/LDLD/removal1_removesnps.RData")
+load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/removal1_removesnps_sign.RData")
+#load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/removal1_removesnps.RData") #I have lost this file, maybe in crash of scratch! regenerate!
+
+#almost empty! possibly because I try to clean whole data-sets, not restricting to the linked ones, so that I have a very big n for the fdr correction. #let's try restricting it.
+#removal1_removesnps[removal1_removesnps[,2]<=0.05,]
+removal1_removesnps_sign[removal1_removesnps_sign[,3]<=0.05,]
+
+
+#fdr for real data
+dim(fullsign)
+#res<-rebuild_dataLDLD(removal1_removesnps[removal1_removesnps[,3]<0.05,1],fullsign)
+res_sign<-rebuild_dataLDLD(removal1_removesnps_sign[removal1_removesnps_sign[,3]<0.05,1],fullsign)
+#dim(res)
+dim(res_sign)
+#combined_fdr<-p.adjust(p=dchisq(res$X,df=2*res$popX), method = "fdr", n = ncomp) #NB: i did not correct ncomp, so they might be a bit more
+combined_pval_sign<-dchisq(res_sign$X,df=2*res_sign$popX)
+combined_fdr_sign<-p.adjust(p=combined_pval_sign, method = "fdr", n = ncomp)
+#signleft<-res[combined_fdr<0.05,]
+signleft_sign<-res_sign[combined_fdr_sign<0.05,]
+#dim(signleft) #16578
+dim(signleft_sign) #16578
+}
+
+#fdr and pval for null distribution
+if (FALSE)
+{
+nperm<-3
+reschr_count<-rep(0,nperm)
+combined_fdr_l<-list()
+combined_pval_l<-list()
+for (myperm in 1:nperm)
+{
+data<-read.table(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/reschr",myperm,"/anal/sorted.res"))
+names(data)<-c("chrA","chrB","posA","posB","dbsnpA","dbsnpB","nA","nB","Nse","nAB","nAA","nBB","D","D1","rho2","prho2","pfisher","pKuli","T2","Xtot","X","pop","popX")
+system(paste0("cat /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/reschr",myperm,"/*minilog | grep ncomparisons | awk '{print $14}' > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/reschr",myperm,"/ncomparisons.txt"))
+ncomp<-read.table(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/removal1/reschr",myperm,"/ncomparisons.txt"),header= FALSE )
+ncomp<-sum(ncomp$V1)
+dataFIN<-subset(data,data$pop==7)
+dataFIN$popX[dataFIN$popX==999]<-1
+combined_pval<-dchisq(dataFIN$X,df=2*dataFIN$popX)
+combined_fdr<-p.adjust(p=combined_pval, method = "fdr", n = ncomp) #notthe best approach because like this I have all pairs. This is why probably at the beginning I wasusing a smaller cutoff.
+fullsign_reschr<-cbind(dataFIN,combined_fdr)[combined_fdr<0.05,]
+combined_fdr_l[[myperm]]<-combined_fdr
+combined_pval_l<-combined_pval
+reschr_count[myperm]<-dim(fullsign_reschr)[1]
+}
+#save("combined_fdr_l",file="~/Dropbox/LDLD/removal1_combined_fdr_l.RData")
+#save("combined_pval_l",file="~/Dropbox/LDLD/removal1_combined_pval_l.RData")
+
+load("~/Dropbox/LDLD/removal1_combined_pval_l.RData")
+reschr_count #15736 15717 15585
+
+source("~/Dropbox/LDLD/analysesLDLD_header.R")
+removal1_empfdr<-empiricall_fdr(combined_pval_sign,unlist(combined_pval_l),3)
+
+nsignificant<-sum(as.numeric(removal1_empfdr<0.05))
+removal1_sign<-res_sign[order(combined_pval_sign),][1:nsignificant,]
+#save("removal1_sign",file="~/Dropbox/LDLD/removal1_sign_empT2.RData")
+#save("removal1_empfdr",file="~/Dropbox/LDLD/removal1_empfdr.RData")
+}
+
+#infoplot
+if (FALSE)
+{
+fullsign[,combined_pval_sign]
+length(combined_pval_sign)
+hist(sqrt(removal1_combined_fdr[removal1_combined_fdr<0.05]),breaks=15,col="coral",main="removal1_pval vs reshuffled",xlab="sqrt(fdr)")
+hist(sqrt(combined_fdr[combined_fdr<0.05]),breaks=15,col="azure",add= TRUE )
+
+setwd("/mnt/scratch/fabrizio/LDLD")
+load("removal1_resresgen.RData") 
+head(removal1_resresgen[[1]])
+load("removal1_l_mutsamples.RData")
+head(l_mutsamples[[1]])
+setwd("~/Dropbox/LDLD")
+load("removal1_logpop.RData")
+head(logpop[[1]])
+load("removal1_logpoptot.RData")
+head(logpoptot[[1]])
+load("removal1_test_bis.RData")
+source("~/Dropbox/LDLD/analysesLDLD_header.R")
+library(vioplot)
+infoplot(i,mymaxk=5,reshufflings=test_removal1[[i]]$raw)
+if (FALSE)
+{
+    par(mfrow=c(1,1))
+    for (i in 1:12)
+    {
+        pdf(paste0("~/Dropbox/LDLD/ipynb/figs/coding1000g/removal1/logplot",i,".pdf"))
+        infoplot(i,mymaxk=5,reshufflings=test_removal1[[i]]$raw)
+        dev.off()
+    }
+}
+}
+
+#simple repeats
+#mysql --user=genome --host=genome-mysql.cse.ucsc.edu -N -AB -e "SELECT chrom, chromStart, chromEnd from simpleRepeat;" hg19 > simpleRepeats.bed
+
+#check overlap with chips Rashmi
+if (FALSE)
+{
+#she has a lot of strange IDs, including these illumina exm ones. Find conversion in http://support.illumina.com/downloads/humancoreexome-12v1-0_product_files.html
+#downloaded as HumanCoreExome-12-v1-0-D-auxilliary-file.txt
+#cat /mnt/sequencedb/1000Genomes/ftp/phase3/20140910/functional_annotation/filtered/temp/missense.chr*.e /mnt/sequencedb/1000Genomes/ftp/phase3/20140910/functional_annotation/filtered/temp/synonymous.chr*.e | shuf -n 10000 | awk -v OFS='\t' '{if ($10==1){print $1,$2-1,$2,$11}}' >  /mnt/scratch/fabrizio/LDLD/randomsnps.bed
+
+library(data.table)
+badsnps<-fread("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/removed.bed")
+randomsnps<-fread("/mnt/scratch/fabrizio/LDLD/randomsnps.bed")
+MendelsError<-fread("~/Dropbox/LDLD/fromRashmi/all_mendel_errors_and_missingness.csv",sep=",",header=TRUE)
+conversion_exm2dbsnp<-fread("~/Dropbox/LDLD/fromRashmi/HumanCoreExome-12-v1-0-D-auxilliary-file.txt")
+
+if (FALSE)
+{
+MendelsError_converted<-MendelsError[!is.na(match(MendelsError$CHR,conversion_exm2dbsnp$Name)),]
+myconversion<-conversion_exm2dbsnp[match(MendelsError_converted$CHR,conversion_exm2dbsnp$Name),]
+myconversion<-cbind(MendelsError_converted,myconversion)
+match(badsnps$V4,myconversion$RsID)
+#conversion_exm2dbsnp[conversion_exm2dbsnp$RsID=="rs115347328",]
+}
+
+extract_FMISS<-function(mysnps)
+{
+names(MendelsError)
+setnames(MendelsError,c("chr","Name","N_MISS","N_GENO","F_MISS"))
+converted<-merge(MendelsError,conversion_exm2dbsnp,by="Name")
+setnames(mysnps,c("chr","start","end","RsID"))
+mysnps_errors<-merge(mysnps,converted,by="RsID")
+setnames(mysnps,c("chr","start","end","Name"))
+myfmiss_dbsnp<-merge(mysnps,MendelsError,by="Name")
+myfmiss_dbsnp<-cbind(myfmiss_dbsnp[,],myfmiss_dbsnp$Name)
+mynames<-names(myfmiss_dbsnp)
+mynames[length(mynames)]<-"RsID"
+setnames(myfmiss_dbsnp,mynames)
+mysnps_errors<-rbind(myfmiss_dbsnp,mysnps_errors)
+mysnps_errors[,chr.y:=NULL]
+mynames<-names(mysnps_errors)
+mynames[2]<-"chr"
+setnames(mysnps_errors,mynames)
+dim(mysnps_errors)
+mysnps_errors<-unique(mysnps_errors)
+mysnps_errors<-subset(mysnps_errors,F_MISS<0.05)
+return(list(length(unique(sort(mysnps_errors$start))),mysnps_errors))
+}
+
+badsnps_errors_sign<-extract_FMISS(badsnps)
+randomsnps_errors<-extract_FMISS(randomsnps)
+
+badsnps_errors_sign[[1]]/dim(badsnps)[1]
+randomsnps_errors[[1]]/dim(randomsnps)[1]
+
+#is it possible because I have to check that present in FIN, and maybe all these are not.
+#length(randomsnps_errors$F_MISS[as.numeric(randomsnps_errors$F_MISS)<0.05])/length(randomsnps_errors$F_MISS)
+#[1] 0.009344424
+#length(badsnps_errors_sign$F_MISS[as.numeric(badsnps_errors_sign$F_MISS)<0.05])/length(badsnps_errors_sign$F_MISS)
+#[1] 0.1341463
+
+hist(as.numeric(MendelsError_converted$F_MISS))
+
+MendelsError_converted[!is.na(MendelsError_converted$CHR),]
+match(MendelsError_converted$CHR,conversion_exm2dbsnp$Name)
+
+rsid<-conversion_exm2dbsnp$RsID[!is.na(match(conversion_exm2dbsnp$Name,MendelsError$CHR))]
+}
+
+#base
+library(data.table)
+mylogo<-fread("/mnt/scratch/fabrizio/LDLD/logosign.bed")
+badsnps<-fread("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/removed.bed")
+mylogo2<-unique(merge(badsnps,mylogo,by='V3'))#NOT COMPLETE
+
+temp<-mylogo2[mylogo2$V5=='A',]
+temp<-temp[temp$V4.y=='T',]
+temp2<-mylogo2[mylogo2$V5=='T',]
+temp2<-temp2[temp2$V4.y=='A',]
+AT_er<-dim(temp2)[1]+dim(temp)[1]
+temp<-mylogo2[mylogo2$V5=='C',]
+temp<-temp[temp$V4.y=='G',]
+temp2<-mylogo2[mylogo2$V5=='G',]
+temp2<-temp2[temp2$V4.y=='C',]
+CG_er<-dim(temp2)[1]+dim(temp)[1]
+temp<-mylogo2[mylogo2$V5=='A',]
+temp<-temp[temp$V4.y=='G',]
+temp2<-mylogo2[mylogo2$V5=='G',]
+temp2<-temp2[temp2$V4.y=='A',]
+AG_er<-dim(temp2)[1]+dim(temp)[1]
+temp<-mylogo2[mylogo2$V5=='C',]
+temp<-temp[temp$V4.y=='T',]
+temp2<-mylogo2[mylogo2$V5=='T',]
+temp2<-temp2[temp2$V4.y=='C',]
+CT_er<-dim(temp2)[1]+dim(temp)[1]
+
+temp<-mylogo[mylogo$V5=='A',]
+temp<-temp[temp$V4=='T',]
+temp2<-mylogo[mylogo$V5=='T',]
+temp2<-temp2[temp2$V4=='A',]
+AT_back<-dim(temp2)[1]+dim(temp)[1]
+temp<-mylogo[mylogo$V5=='C',]
+temp<-temp[temp$V4=='G',]
+temp2<-mylogo[mylogo$V5=='G',]
+temp2<-temp2[temp2$V4=='C',]
+CG_back<-dim(temp2)[1]+dim(temp)[1]
+temp<-mylogo[mylogo$V5=='A',]
+temp<-temp[temp$V4=='G',]
+temp2<-mylogo[mylogo$V5=='G',]
+temp2<-temp2[temp2$V4=='A',]
+AG_back<-dim(temp2)[1]+dim(temp)[1]
+temp<-mylogo[mylogo$V5=='C',]
+temp<-temp[temp$V4=='T',]
+temp2<-mylogo[mylogo$V5=='T',]
+temp2<-temp2[temp2$V4=='C',]
+CT_back<-dim(temp2)[1]+dim(temp)[1]
+
+mybackground<-c(AG_er,CT_er,AT_er,CG_er)/sum(c(AG_er,CT_er,AT_er,CG_er))
+myerr<-c(AG_back,CT_back,AT_back,CG_back)/sum(c(AG_back,CT_back,AT_back,CG_back))
+myerr<-rbind(mybackground,myerr)
+colnames(myerr)<-c("AG","CT","AT","CG")
+pdf("~/Dropbox/LDLD/ipynb/figs/coding1000g/base_comp.pdf")
+barplot(myerr,beside=TRUE,col=c("floralwhite","azure3"),ylab="count",)
+legend("topleft",fill=c("floralwhite","azure3"), legend=c("biased","background"))
+dev.off()
+
+
+
+
+
+
+#------------------------------------explorative plots all pops together----------------------------v
+colpops<-rep("cadetblue",nspops[1])#TSI
+colpops<-c(colpops,rep("cadetblue3",nspops[2]))#IBS
+colpops<-c(colpops,rep("chartreuse3",nspops[3]))#PUR
+colpops<-c(colpops,rep("khaki1",nspops[4]))#GWD
+colpops<-c(colpops,rep("brown1",nspops[5]))#CHB
+colpops<-c(colpops,rep("brown",nspops[6]))#JPT
+colpops<-c(colpops,rep("firebrick2",nspops[7]))#CHS
+colpops<-c(colpops,rep("deepskyblue3",nspops[8]))#FIN
+colpops<-c(colpops,rep("darkolivegreen3",nspops[9]))#ACB
+colpops<-c(colpops,rep("gold1",nspops[10]))#YRI
+colpops<-c(colpops,rep("coral2",nspops[11]))#KHV
+colpops<-c(colpops,rep("lightpink",nspops[12]))#STU
+isq<-1
+seqcenter<-c()
+for (isq in 1:12)
+{
+seqcenter<-c(seqcenter,as.character(infosamples[[isq]]$Main.project.LC.Centers))
+}
+seqcenter_col<-rep(0,length(seqcenter))
+seqcenter_col[seqcenter=='BI']<-"firebrick"
+seqcenter_col[seqcenter=='BI,MPIMG']<-"firebrick1"
+seqcenter_col[seqcenter=='MPIMG']<-"coral2"
+seqcenter_col[seqcenter=='BGI']<-"cadetblue"
+seqcenter_col[seqcenter=='BCM,BGI']<-"cadetblue2"
+seqcenter_col[seqcenter=='BCM']<-"aquamarine2"
+seqcenter_col[seqcenter=='ILLUMINA']<-"chartreuse3"
+seqcenter_col[seqcenter=='SC']<-"brown1"
+seqcenter_col[seqcenter=='WUGSC']<-"darkgoldenrod1"
+seqcenter_col
+#pops are separated well when all, but not for significant (that seems to reflect sequencing center problems
+pdf("nABallpops_abovefreqthr.pdf")
+plot(mylog2[order(mylog2)],col=colpops[order(mylog2)],pch=19,ylab="nAB all",xlab="sample")
+dev.off()
+pdf("nABallpops_abovefreqthrsign.pdf")
+plot(mylog3[order(mylog3)],col=colpops[order(mylog3)],pch=19,ylab="nAB significant",xlab="sample")
+dev.off()
+pdf("nABallpops_abovefreqthr_SC.pdf")
+plot(mylog2[order(mylog2)],col=seqcenter_col[order(mylog2)],pch=19,ylab="nAB all",xlab="sample")
+dev.off()
+pdf("nABallpops_abovefreqthrsign_SC.pdf")
+plot(mylog3[order(mylog3)],col=seqcenter_col[order(mylog3)],pch=19,ylab="nAB significant",xlab="sample")
+dev.off()
+#---------------------------------------------------------------------------------------------------^
+#TAG 'excess of linkage'
+nperm<-10
+reschr_count<-rep(0,nperm-1)
+combined_fdr_l<-list()
+for (myperm in 2:nperm)
+{
+system(paste0("awk '{if (NF==23){print}}' /mnt/scratch/fabrizio/LDLD/above95/coding1000g/reschr",myperm,"/anal/sorted.res > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/reschr",myperm,"/anal/sorted2.res"))
+system(paste0("cat /mnt/scratch/fabrizio/LDLD/above95/coding1000g/reschr",myperm,"/*minilog | grep ncomparisons | awk '{print $14}' > /mnt/scratch/fabrizio/LDLD/above95/coding1000g/reschr",myperm,"/ncomparisons.txt"))
+}
+for (myperm in 2:nperm)
+    {
+    data<-read.table(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/reschr",myperm,"/anal/sorted2.res"))
+    print(dim(data))
+    names(data)<-c("chrA","chrB","posA","posB","dbsnpA","dbsnpB","nA","nB","Nse","nAB","nAA","nBB","D","D1","rho2","prho2","pfisher","pKuli","T2","Xtot","X","pop","popX")
+    ncomp<-read.table(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/reschr",myperm,"/ncomparisons.txt"),header=FALSE)
+    ncomp<-sum(ncomp$V1)
+    dataFIN<-subset(data,data$pop==7)
+    combined_fdr<-p.adjust(p=dchisq(dataFIN$X,df=2*dataFIN$popX), method = "fdr", n = ncomp) #not the best approach because like this I have all pairs. #This is why probably at the beginning I was using a smaller cutoff.
+    fullsign_reschr<-cbind(dataFIN,combined_fdr)[combined_fdr<0.05,]
+    combined_fdr_l[[myperm]]<-combined_fdr
+    reschr_count[myperm]<-dim(fullsign_reschr)[1]
+    }
+save("combined_fdr_l",file="~/Dropbox/LDLD/coding1000g_combined_fdr_l.RData")
+load("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/fullsign.RData")
+
+pdf("~/Dropbox/LDLD/coding1000g/distr_fdr_datavsempirical.pdf")
+histnull<-hist(sqrt(unlist(combined_fdr_l)),xlim=c(0,0.3),breaks=30);
+hist(sqrt(fullsign$combined_fdr[fullsign$combined_fdr<0.05]),xlim=c(0,0.3),breaks=histnull$breaks,col=rgb(0.1,0.1,0.1,0.8),main="sqrt(fdr)",xlab="sqrt(fdr)")
+histnull$counts<-histnull$counts/(length(combined_fdr_l)-1)
+plot(histnull,add=TRUE,col=rgb(0.8,0.8,0.8,0.6),breaks=30)
+dev.off()
+
+nperm<-10
+reschr_count<-rep(0,nperm-1)
+pval_l<-list()
+for (myperm in 2:nperm)
+    {
+    data<-read.table(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/reschr",myperm,"/anal/sorted2.res"))
+    print(dim(data))
+    names(data)<-c("chrA","chrB","posA","posB","dbsnpA","dbsnpB","nA","nB","Nse","nAB","nAA","nBB","D","D1","rho2","prho2","pfisher","pKuli","T2","Xtot","X","pop","popX")
+    ncomp<-read.table(paste0("/mnt/scratch/fabrizio/LDLD/above95/coding1000g/reschr",myperm,"/ncomparisons.txt"),header=FALSE)
+    ncomp<-sum(ncomp$V1)
+    dataFIN<-subset(data,data$pop==7)
+    pval<-dchisq(dataFIN$X,df=2*dataFIN$popX)
+    pval<-pval[pval<0.01]
+    pval_l[[myperm]]<-pval
+    }
+
+save(pval_l,file="~/Dropbox/LDLD/coding1000g/coding1000g_pval_l.RData")
+pdf("~/Dropbox/LDLD/coding1000g/distr_combinedpval_datavsempirical.pdf")
+mythr<-0.00001
+histnull<-hist(sqrt(unlist(pval_l)[unlist(pval_l)<mythr]),xlim=c(0,0.001),breaks=30);
+hist(sqrt(combined_pval[combined_pval<mythr]),xlim=c(0,0.001),breaks=histnull$breaks,col=rgb(0.1,0.1,0.1,0.8),main="",xlab="sqrt(combined p-value)")
+histnull$counts<-histnull$counts/(length(pval_l)-1)
+plot(histnull,col=rgb(0.8,0.8,0.8,0.6),add=TRUE)
+dev.off()
+
+fdrres<-empiricall_fdr(combined_pval,unlist(pval_l),length(pval_l)-1)
+save(fdrres,file="~/Dropbox/LDLD/coding1000g/coding1000g_fdr.RData")
+
+length(fdrres[fdrres<0.05])
+pdf("~/Dropbox/LDLD/coding1000g//fdrplot_datavsempirical.pdf")
+plot(fdrres,type="l",xlab="index",ylab="fdr")
+dev.off()
+
+length(histnull$breaks)
+# TAG 'histograms to illustrate separation method in analysesLDLD_header'------------------------------------------------vvvv
+
+i<-1
+if (FALSE)
+{
+  i<-11
+  nAB_l<-unlist(logpop[[i]][1])
+  mydata<-nAB_l[order(nAB_l)]
+  mod2<-normalmixEM(mydata,lambda=1/2,mu=breakshist(2,mydata),sigma=rep(10,2))
+  mod3<-normalmixEM(mydata,lambda=1/3,mu=breakshist(3,mydata),sigma=rep(10,3))
+  rescalingfactor<-3*10^4
+  pdf("hist_nAB_models.pdf")
+  par(mfrow=c(2,3))
+  hist(mydata,breaks=20,main="2 k",xlab="nAB")
+  x <- seq(min(mydata), max(mydata), length=100)
+  curve(dnorm(x, mean=mean(mydata), sd=sd(mydata))*rescalingfactor, 
+	    col="darkred", lwd=2, add=TRUE, yaxt="n")
+  hist(mydata,breaks=20,main="4 k",xlab="nAB")
+  x <- seq(min(mydata), max(mydata), length=100)
+  curve(dnorm(x, mean=mod2$mu[1], sd=mod2$sigma[1])*rescalingfactor, 
+	    col="darkblue", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod2$mu[2], sd=mod2$sigma[2])*rescalingfactor, 
+	    col="darkred", lwd=2, add=TRUE, yaxt="n")
+  hist(mydata,breaks=20,main="6 k",xlab="nAB")
+  x <- seq(min(mydata), max(mydata), length=100)
+  curve(dnorm(x, mean=mod3$mu[1], sd=mod3$sigma[1])*rescalingfactor, 
+	    col="darkblue", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod3$mu[2], sd=mod3$sigma[2])*rescalingfactor, 
+	    col="darkred", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod3$mu[3], sd=mod3$sigma[3])*rescalingfactor, 
+	    col="darkgreen", lwd=2, add=TRUE, yaxt="n")
+  dev.off()
+  i<-9
+  nAB_l<-unlist(logpop[[i]][1])
+  mydata<-nAB_l[order(nAB_l)]
+  mod2<-normalmixEM(mydata,lambda=1/2,mu=breakshist(2,mydata),sigma=rep(10,2))
+  mod3<-normalmixEM(mydata,lambda=1/3,mu=breakshist(3,mydata),sigma=rep(10,3))
+  mod4<-normalmixEM(mydata,lambda=1/3,mu=breakshist(4,mydata),sigma=rep(10,4))
+  mod5<-normalmixEM(mydata,lambda=1/3,mu=breakshist(5,mydata),sigma=rep(10,5))
+  mod6<-normalmixEM(mydata,lambda=1/3,mu=breakshist(6,mydata),sigma=rep(10,6))
+  rescalingfactor<-10^4
+  dev.new()
+  pdf("hist_nAB_models.pdf")
+  par(mfrow=c(2,3))
+  hist(mydata,breaks=20,main="2 k",xlab="nAB")
+  x <- seq(min(mydata), max(mydata), length=100)
+  curve(dnorm(x, mean=mean(mydata), sd=sd(mydata))*rescalingfactor, 
+	    col="darkred", lwd=2, add=TRUE, yaxt="n")
+  hist(mydata,breaks=20,main="4 k",xlab="nAB")
+  x <- seq(min(mydata), max(mydata), length=100)
+  curve(dnorm(x, mean=mod2$mu[1], sd=mod2$sigma[1])*rescalingfactor, 
+	    col="darkblue", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod2$mu[2], sd=mod2$sigma[2])*rescalingfactor, 
+	    col="darkred", lwd=2, add=TRUE, yaxt="n")
+  hist(mydata,breaks=20,main="6 k",xlab="nAB")
+  curve(dnorm(x, mean=mod3$mu[1], sd=mod3$sigma[1])*rescalingfactor, 
+	    col="darkblue", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod3$mu[2], sd=mod3$sigma[2])*rescalingfactor, 
+	    col="darkred", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod3$mu[3], sd=mod3$sigma[3])*rescalingfactor, 
+	    col="darkgreen", lwd=2, add=TRUE, yaxt="n")
+  hist(mydata,breaks=20,main="8 k",xlab="nAB")
+  curve(dnorm(x, mean=mod4$mu[1], sd=mod4$sigma[1])*rescalingfactor, 
+	    col="darkblue", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod4$mu[2], sd=mod4$sigma[2])*rescalingfactor, 
+	    col="darkred", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod4$mu[3], sd=mod4$sigma[3])*rescalingfactor, 
+	    col="darkgreen", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod4$mu[4], sd=mod4$sigma[4])*rescalingfactor, 
+	    col="gray", lwd=2, add=TRUE, yaxt="n")
+  hist(mydata,breaks=20,main="10 k",xlab="nAB")
+  curve(dnorm(x, mean=mod5$mu[1], sd=mod5$sigma[1])*rescalingfactor, 
+	    col="darkblue", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod5$mu[2], sd=mod5$sigma[2])*rescalingfactor, 
+	    col="darkred", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod5$mu[3], sd=mod5$sigma[3])*rescalingfactor, 
+	    col="darkgreen", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod5$mu[4], sd=mod5$sigma[4])*rescalingfactor, 
+	    col="gray", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod5$mu[5], sd=mod5$sigma[5])*rescalingfactor, 
+	    col="orange", lwd=2, add=TRUE, yaxt="n")
+  hist(mydata,breaks=20,main="12 k",xlab="nAB")
+  curve(dnorm(x, mean=mod6$mu[1], sd=mod6$sigma[1])*rescalingfactor, 
+	    col="darkblue", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod6$mu[2], sd=mod6$sigma[2])*rescalingfactor, 
+	    col="darkred", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod6$mu[3], sd=mod6$sigma[3])*rescalingfactor, 
+	    col="darkgreen", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod6$mu[4], sd=mod6$sigma[4])*rescalingfactor, 
+	    col="gray", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod6$mu[5], sd=mod6$sigma[5])*rescalingfactor, 
+	    col="orange", lwd=2, add=TRUE, yaxt="n")
+  curve(dnorm(x, mean=mod6$mu[6], sd=mod6$sigma[6])*rescalingfactor, 
+	    col="pink", lwd=2, add=TRUE, yaxt="n")
+  dev.off()
+}
+#--------------------------------------------------^
+#===========================CREATE LOGOS================
+#TAG 'CREATE LOGOS'
+#cat above95/coding1000g/anal/snpsA.bed above95/coding1000g/anal/snpsB.bed | sort -Vu -k1,1 -k2,2 > above95/coding1000g/anal/snps.bed
+data<-read.table("above95/coding1000g/anal/snps.bed",stringsAsFactors =FALSE,header=FALSE)
+names(data)<-c("chr","start","end")
+data$start<-as.numeric(data$start)
+data$end<-as.numeric(data$end) 
+dim(data) #47193
+insnpsbed<-data[data$chr=="chr19",]
+insnpsbed[insnpsbed$end==11687195,]
+createbedlogo(data,"above95/coding1000g/logosign")
+
+#cat above95/coding1000g/chr*.tab | grep -v '#' | sort -Vu -k1,1 -k2,2 | awk -v OFS='\t' '{print "chr"$1,$2-1,$2}' > above95/coding1000g/chrtab.bed #background from files .tab #NB: a bit more than bed2 in $TARGET. check why!
+#bedtools intersect -b above95/coding1000g/anal/snps.bed -a above95/coding1000g/chrtab.bed -v > above95/coding1000g/notsnps.bed
+data<-read.table("above95/coding1000g/notsnps.bed",stringsAsFactors =FALSE,header=FALSE)
+names(data)<-c("chr","start","end")
+data$start<-as.numeric(data$start)
+data$end<-as.numeric(data$end)
+createbedlogo(data,"above95/coding1000g/logonotsign")
+
+createbedlogo(data,"above95/coding1000g/logonotsign")
+
+data1<-cbind(data,0,0,0,0)
+write.table(myres2,file="above95/coding1000g/logonotsign.temp",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+
+#=========================CHECK IMBALANCE in .BAM FILES by using LOGO files==================
+#paste <(bedtools intersect -a <( cat above95/coding1000g/anal/snps.bed | sed 's/chr//g' ) -b <( cat above95/coding1000g/chr*.tab |  awk -v OFS='\t' '{print $1,$2-1,$2,$4,$5,$7}' | sort -Vu -k1,1 -k2,2) -loj | awk -v OFS='\t' '{print $1,$2,$3,$7,$8,$9,$10}' | sort -Vu -k1,1 -k2,2) above95/coding1000g/logosign | sort -Vu -k1,1 -k2,2 > above95/coding1000g/logosign.bed
+#bamlogos for significant snps
+myres<-bamlogo("above95/coding1000g/logosign.bed",tilltheend=FALSE,till=5000,startfrom=1,filetemp="temp1")
+myres2<-as.data.frame(myres,row.names=FALSE,filetemp="temp1")
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call")
+write.table(myres2,file="above95/coding1000g/anal/logo2_1to5k.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+myres<-bamlogo("above95/coding1000g/logosign.bed",tilltheend=FALSE,till=25000,startfrom=20001,filetemp="temp20k")
+myres2<-as.data.frame(myres,row.names=FALSE,filetemp="temp20k")
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call","tot_samples")
+write.table(myres2,file="above95/coding1000g/anal/logo2_20kto25k.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+myres<-bamlogo("above95/coding1000g/logosign.bed",tilltheend=FALSE,till=2000,startfrom=1)
+myres2<-as.data.frame(myres,row.names=FALSE)
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call")
+write.table(myres2,file="above95/coding1000g/anal/logo2_1to2000.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+myres<-bamlogo("above95/coding1000g/logosign.bed",tilltheend=FALSE,till=4000,startfrom=2001)
+myres2<-as.data.frame(myres,row.names=FALSE)
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call")
+write.table(myres2,file="above95/coding1000g/anal/logo2_2001to4000.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+myres<-bamlogo("above95/coding1000g/logosign.bed",tilltheend=FALSE,till=15000,startfrom=10001,filetemp="temp2")
+myres2<-as.data.frame(myres,row.names=FALSE,filetemp="temp2")
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call")
+write.table(myres2,file="above95/coding1000g/anal/logo2_10kto15k.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+myres<-bamlogo("above95/coding1000g/logosign.bed",tilltheend=FALSE,till=20000,startfrom=15001,filetemp="temp15k")
+myres2<-as.data.frame(myres,row.names=FALSE,filetemp="temp15k")
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call")
+write.table(myres2,file="above95/coding1000g/anal/logo2_15kto20kend.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+myres<-bamlogo("above95/coding1000g/logosign.bed",tilltheend=FALSE,till=40000,startfrom=30001,filetemp="temp30k")
+myres2<-as.data.frame(myres,row.names=FALSE,filetemp="temp30k")
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call","tot_samples")
+write.table(myres2,file="above95/coding1000g/anal/logo2_30kto40kend.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+myres<-bamlogo("above95/coding1000g/logosign.bed",tilltheend=TRUE,startfrom=40001,filetemp="temp40k")
+myres2<-as.data.frame(myres,row.names=FALSE,filetemp="temp40k")
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call","tot_samples")
+write.table(myres2,file="above95/coding1000g/anal/logo2_40ktoend.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+myres<-bamlogo("above95/coding1000g/logosign.bed",tilltheend=FALSE,till=30000,startfrom=25001,filetemp="temp25k")
+myres2<-as.data.frame(myres,row.names=FALSE,filetemp="temp25k")
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call","tot_samples")
+write.table(myres2,file="above95/coding1000g/anal/logo2_25kto30k.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+data1<-read.table("above95/coding1000g/anal/logo2_1to5k.bed",stringsAsFactors =FALSE,header=TRUE)
+data2<-read.table("above95/coding1000g/anal/logo2_5kto10k.bed",stringsAsFactors =FALSE,header=TRUE)
+data3<-read.table("above95/coding1000g/anal/logo2_10kto15k.bed",stringsAsFactors =FALSE,header=TRUE)
+data4<-read.table("above95/coding1000g/anal/logo2_15kto20kend.bed",stringsAsFactors =FALSE,header=TRUE)
+data5<-read.table("above95/coding1000g/anal/logo2_20kto25k.bed",stringsAsFactors =FALSE,header=TRUE)
+data6<-read.table("above95/coding1000g/anal/logo2_25kto30k.bed",stringsAsFactors =FALSE,header=TRUE)
+data7<-read.table("above95/coding1000g/anal/logo2_30kto40kend.bed",stringsAsFactors =FALSE,header=TRUE)
+data8<-read.table("above95/coding1000g/anal/logo2_40ktoend.bed",stringsAsFactors =FALSE,header=TRUE)
+data<-rbind(data1[,1:11],data2[,1:11],data3[,1:11],data4[,1:11],data5[,1:11],data6[,1:11],data7[,1:11],data8[,1:11])
+write.table(data,file="above95/coding1000g/anal/logo2_all.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE)
+
+#bamlogos for not significant snps
+#paste <(bedtools intersect -a <( cat above95/coding1000g/notsnps.bed | sed 's/chr//g' ) -b <( cat above95/coding1000g/chr*.tab |  awk -v OFS='\t' '{print $1,$2-1,$2,$4,$5,$7}' | sort -Vu -k1,1 -k2,2) -loj | awk -v OFS='\t' '{print $1,$2,$3,$7,$8,$9,$10}' | sort -Vu -k1,1 -k2,2) above95/coding1000g/logonotsign | sort -Vu -k1,1 -k2,2 > above95/coding1000g/logonotsign.bed
+myres<-bamlogo("above95/coding1000g/logonotsign.bed",tilltheend=FALSE,till=5000,startfrom=1,filetemp="temp1")
+myres2<-as.data.frame(myres,row.names=FALSE,filetemp="temp1")
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call")
+write.table(myres2,file="above95/coding1000g/anal/logo2_1to5k_notsign.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+myres<-bamlogo("above95/coding1000g/logonotsign.bed",tilltheend=FALSE,till=10000,startfrom=5001,filetemp="temp5k")
+myres2<-as.data.frame(myres,row.names=FALSE,filetemp="temp5k")
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call")
+write.table(myres2,file="above95/coding1000g/anal/logo2_5kto10k_notsign.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+myres<-bamlogo("above95/coding1000g/logonotsign.bed",tilltheend=FALSE,till=20000,startfrom=10001,filetemp="temp10knot")
+myres2<-as.data.frame(myres,row.names=FALSE,filetemp="temp10knot")
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call")
+write.table(myres2,file="above95/coding1000g/anal/logo2_10kto20k_notsign.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+myres<-bamlogo("above95/coding1000g/logonotsign.bed",tilltheend=TRUE,startfrom=20001,filetemp="temp20knot")
+myres2<-as.data.frame(myres,row.names=FALSE,filetemp="temp20knot")
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call")
+write.table(myres2,file="above95/coding1000g/anal/logo2_20ktoend_notsign.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+
+#========================================================ANALYSES IMBALANCE: not sign
+setwd("/mnt/scratch/fabrizio/LDLD/")
+data1<-read.table("above95/coding1000g/anal/logo2_1to5k_notsign.bed",stringsAsFactors =FALSE,header=TRUE)
+data2<-read.table("above95/coding1000g/anal/logo2_5kto10k_notsign.bed",stringsAsFactors =FALSE,header=TRUE)
+data3<-read.table("above95/coding1000g/anal/logo2_10kto20k_notsign.bed",stringsAsFactors =FALSE,header=TRUE)
+data4<-read.table("above95/coding1000g/anal/logo2_20ktoend_notsign.bed",stringsAsFactors =FALSE,header=TRUE)
+names(data2)<-names(data1)
+names(data3)<-names(data1)
+names(data4)<-names(data1)
+data<-rbind(data1[,1:11],data2[,1:11],data3[,1:11],data4[,1:11])
+write.table(data,file="above95/coding1000g/anal/logo2_allnotsign.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE)
+logonotsign<-read.table("above95/coding1000g/anal/logo2_allnotsign.bed",stringsAsFactors =FALSE,header=TRUE)
+logonotsign[is.na(logonotsign)] <- 0
+logonotsign<-cbind(logonotsign,t(sapply(1:dim(logonotsign)[1],function(x) prHvsE(logonotsign,x))))
+dim(logonotsign)
+res<-logo_below_thr(logonotsign,0.00001) #0.03417355
+res<-logo_below_thr(logonotsign,0.05) #0.1843388
+
+
+
+#========================================================ANALYSES IMBALANCE: sign
+logosign<-read.table("above95/coding1000g/anal/logo2_all.bed",stringsAsFactors =FALSE,header=TRUE)
+logosign[is.na(logosign)] <- 0
+logosign<-cbind(logosign,t(sapply(1:dim(logosign)[1],function(x) prHvsE(logosign,x))))
+res<-logo_below_thr(logosign,0.00001) #0.05235133
+res<-logo_below_thr(logosign,0.05) #0.1960372
+logosign_potentialH<-res[[2]]
+dataLDLD<-sign
+head(res[[1]])[,c(1,3:11,13)]
+options(xtable.floating = FALSE)
+xtable(head(res[[1]])[,c(1,3:11,13)],digits=8)
+
+system.time(res10k<-ave_LDLD_BED(sign,logosign,myfrom=1,myto=10000))
+system.time(res20k<-ave_LDLD_BED(sign,logosign,myfrom=10001,myto=20000))
+system.time(res30k<-ave_LDLD_BED(sign,logosign,myfrom=20001,myto=30000))
+system.time(res40k<-ave_LDLD_BED(sign,logosign,myfrom=30001,myto=40000))
+system.time(resend<-ave_LDLD_BED(sign,logosign,myfrom=40001))
+
+
+logosign_links<-rbind(res10k,res20k,res30k,res40k,resend)
+logosign<-cbind(logosign,logosign_links)
+ln<-length(names(logosign))
+names(logosign)[ln-2]<-"nlinks"
+names(logosign)[ln-1]<-"ave_fdr"
+names(logosign)[ln]<-"min_fdr"
+#if very low min fdr then high ave fdr..very strange! maybe because more linked snps in total and then ave increases
+write.table(logosign,file="above95/coding1000g/anal/logosign_withfdr.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE);
+logosign<-read.table("above95/coding1000g/anal/logosign_withfdr.bed",header=TRUE);
+cor(logosign$ave_fdr,logosign$min_fdr,method="spearman") #0.8 #cool, correlate very strongly
+cor(logosign$ave_fdr,logosign$nlinks,method="spearman") #-0.09677386
+cor(logosign$min_fdr,logosign$nlinks,method="spearman") #-0.4916015 #also, more significant more links
+
+cor(logosign_potentialH$pvalue_no05_alt,logosign_potentialH$nlinks,method="spearman") #more links, the more unlikely to be a real heterozygous #-0.02416674
+cor(logosign_potentialH$pvalue_no05_alt,logosign_potentialH$min_fdr,method="spearman") #0.03156202
+cor.test(logosign_potentialH$pvalue_no05_alt,logosign_potentialH$min_fdr,method="spearman") #p-value = 0.000000002473
+
+temp<-logosign_potentialH[sample(1:dim(logosign_potentialH)[1],3000),]
+plot(temp$pvalue_no05_alt,temp$min_fdr)
+
+#======================================================REMOVE CENTRAL CLUSTER
+#TAG 'REMOVE CENTRAL CLUSTER'
+myres<-retrieve_partners_collapse(as.character(1.881918),dataLDLD,generatecollapse=TRUE)
+newnodes<-retrieve_partners(1,881918,dataLDLD)
+chr<-1
+pos<-881918
+everythingislinked<-run_through_links(dataLDLD$chrA[1],dataLDLD$posA[1],dataLDLD) #nothing is left like this!
+everythingislinked_highlysign<-run_through_links(highlysign$chrA[1],highlysign$posA[1],highlysign) #nothing is left like this!
+length(everythingislinked[[1]])
+dim(everythingislinked[[2]]) #6359
+everythingislinked_highlysign
+length(everythingislinked_highlysign[[1]]) #807
+dim(everythingislinked_highlysign[[2]])[1] #774
+everythingislinked[[2]]
+dim(dataLDLDcollapsed)
+length(dataLDLDlinked)
+save.image("LDLD040216.RData")
+load("LDLD040216.RData")
+everythingislinked[[2]]
+
+rebuild_dataLDLD<-function(removed_snps,dataLDLD,fromremovedsnps=TRUE)
+{
+  if (fromremovedsnps)
+    {
+    dataLDLDA<-as.character(paste0(dataLDLD[,1],".",dataLDLD[,3]))
+    res<-dataLDLD[(is.na(match(dataLDLDA,removed_snps))),]
+    }
+  else
+    {
+    dataLDLDA<-as.character(paste0(dataLDLD[,1],".",dataLDLD[,3]))
+    res<-dataLDLD[(!is.na(match(dataLDLDA,removed_snps))),]
+    }
+return(res)
+}
+rebuild_dataLDLD<-function(removed_snps,dataLDLD)
+{
+  dataLDLDA<-as.character(paste0(dataLDLD[,1],".",dataLDLD[,3]))
+  #dataLDLDB<-as.character(paste0(dataLDLD$chrB,".",dataLDLD$posB))
+  #(!is.na(match(dataLDLDA,removed_snps)))+(!is.na(match(dataLDLDB,removed_snps)))
+return(dataLDLD[(is.na(match(dataLDLDA,removed_snps))),])
+}
+
+
+everythingislinked_LDLDleft<-rebuild_dataLDLD(everythingislinked[[1]],dataLDLD)
+everythingislinked_logoleft<-rebuild_dataLDLD(everythingislinked[[1]],logosign)
+dim(everythingislinked_LDLDleft)[1] #6364
+dim(everythingislinked_logoleft)[1] #9143
+head(everythingislinked_LDLDleft)
+
+cor(everythingislinked_logoleft$pvalue_no05_alt,everythingislinked_logoleft$nlinks,method="spearman") #-0.02628085
+cor(everythingislinked_logoleft$pvalue_no05_alt,everythingislinked_logoleft$min_fdr,method="spearman") #0.01029192 vs 0.03156202
+cor.test(everythingislinked_logoleft$pvalue_no05_alt,everythingislinked_logoleft$min_fdr,method="spearman") #0.3251
+dim(everythingislinked_logoleft)
+res<-logo_below_thr(everythingislinked_logoleft,0.00001) #0.03417355
+res<-logo_below_thr(everythingislinked_logoleft,0.05) #0.1843388
+
+unique(everythingislinked[[1]])
+
+#======================================================trios from this
+#TAG 'trios from this'
+#generate BED files of snps removed.
+if (FALSE)
+  {
+  Cbed<-rebuild_dataLDLD(everythingislinked[[1]][order(everythingislinked[[1]])],logosign,fromremovedsnps=FALSE)
+  write.table(Cbed[,1:3],file="above95/coding1000g/anal/Cbed.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+  system("mkdir above95/coding1000g/noC")
+  i<-1
+  system(paste0("cat above95/coding1000g/anal/Cbed.bed | sed 's/^/chr/' > above95/coding1000g/anal/Cbed.bed2"))
+  for (i in 1:22)
+    {
+    system(paste0("head -1 above95/coding1000g/chr1.tab > above95/coding1000g/noC/chr",i,".tab"))
+    system(paste0("cat above95/coding1000g/chr",i,".tab | awk '{if (NR>1){print}}' | sed 's/^/chr/' > above95/coding1000g/noC/chr",i,".tab2"))
+    system(paste0("bedtools intersect -a above95/coding1000g/noC/chr",i,".tab2 -b above95/coding1000g/anal/Cbed.bed2 -v | sed 's/chr//' >> above95/coding1000g/noC/chr",i,".tab"))
+    system(paste0("cat above95/coding1000g/noC/chr",i,".tab | gzip -9 > above95/coding1000g/noC/chr",i,".coding.vcf.gz"))
+    }
+  system("nohup ./ICLD11multi.sh /mnt/scratch/fabrizio/LDLD/above95/coding1000g/noC 2 coding 1 12 1 23 nspops.txt")
+  }
+system("cat above95/coding1000g/noC/*minilog | grep ncomparisons | awk '{print $14}' > above95/coding1000g/noC/ncomparisons.txt")
+ncomp<-read.table("above95/coding1000g/noC/ncomparisons.txt",header=FALSE)
+ncomp<-sum(ncomp$V1) #528075582
+#temp<-everythingislinked_LDLDleft[everythingislinked_LDLDleft$popX!=999,]
+temp<-dchisq(everythingislinked_LDLDleft$X,df=2*everythingislinked_LDLDleft$popX)
+temp2<-everythingislinked_LDLDleft$T2[everythingislinked_LDLDleft$popX==999]
+temp[everythingislinked_LDLDleft$popX==999]<-temp2
+combined_fdr<-p.adjust(temp, method = "fdr", n = ncomp)
+everythingislinked_LDLDleft$combined_fdr<-combined_fdr
+FINsign_noC<-everythingislinked_LDLDleft[combined_fdr<0.05,]
+write.table(FINsign_noC,file="above95/coding1000g/anal/sign_noC.res",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE)
+write.table(cbind(paste0("chr",FINsign_noC$chrA),FINsign_noC$posA-1,FINsign_noC$posA),file="above95/coding1000g/anal/sign_noCA.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE)
+write.table(cbind(paste0("chr",FINsign_noC$chrB),FINsign_noC$posB-1,FINsign_noC$posB),file="above95/coding1000g/anal/sign_noCB.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE)
+system("sort -Vu -k1,1 -k2,2 above95/coding1000g/anal/sign_noCA.bed > sign_noCA.bed")
+system("sort -Vu -k1,1 -k2,2 above95/coding1000g/anal/sign_noCB.bed > sign_noCB.bed")
+system("./postproc_bedint_allchr.sh sign_noCA.bed sign_noCA.bed.syn synonymous")
+system("./postproc_bedint_allchr.sh sign_noCA.bed sign_noCA.bed.nosyn missense")
+system("./postproc_bedint_allchr.sh sign_noCB.bed sign_noCB.bed.syn synonymous")
+system("./postproc_bedint_allchr.sh sign_noCB.bed sign_noCB.bed.nosyn missense")
+system("bedtools intersect -a above95/coding1000g/anal/sign_noCA.bed -b <( cat sign_noCA.bed.syn sign_noCA.bed.nosyn ) -loj > sign_noCA.ann")
+system("bedtools intersect -a above95/coding1000g/anal/sign_noCB.bed -b <( cat sign_noCB.bed.syn sign_noCB.bed.nosyn ) -loj > sign_noCB.ann")
+system("awk -v OFS='\t' '{print $1,$2,$3,$7,$8,$9,$10,$12,$13,$14,$16}' sign_noCA.ann > sign_noCA.bed")
+system("awk -v OFS='\t' '{print $1,$2,$3,$7,$8,$9,$10,$12,$13,$14,$16}' sign_noCB.ann > sign_noCB.bed")
+
+
+
+dim(FINsign_noC)
+FINsign_noC
+min(temp2)
+sum(temp<min(temp2))
+FINsign_noC[,1:4]
+FINsign_noC<-FINsign_noC[FINsign_noC$pfisher<0.01,]
+dim(FINsign_noC)
+FINsign_noC
+write.table(FINsign_noC,file="above95/coding1000g/anal/FINsign_noC.res",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE)
+mysnps<-rbind(cbind(FINsign_noC$chrA,FINsign_noC$posA),cbind(FINsign_noC$chrB,FINsign_noC$posB))
+mysnps<-as.character(unique(paste0(mysnps[,1],".",mysnps[,2])))
+mylogo<-logosign[!is.na(match(paste0(logosign[,1],".",logosign[,3]),mysnps)),]
+res<-logo_below_thr(mylogo,0.05) #0.3076923
+write.table(mylogo,file="above95/coding1000g/anal/FINsign_noC.logo",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE)
+res[[1]]
+length(mysnps) #21
+
+signAbed<-as.data.frame(cbind(as.character(paste0('chr',FINsign_noC$chrA)),FINsign_noC$posA-1,FINsign_noC$posA),stringsAsFactors =FALSE)
+signBbed<-as.data.frame(cbind(as.character(paste0('chr',FINsign_noC$chrB)),FINsign_noC$posB-1,FINsign_noC$posB),stringsAsFactors =FALSE)
+names(signAbed)<-c("chr","start","end")
+names(signBbed)<-c("chr","start","end")
+signAbed$start<-as.numeric(signAbed$start)
+signAbed$end<-as.numeric(signAbed$end)
+signBbed$start<-as.numeric(signBbed$start)
+signBbed$end<-as.numeric(signBbed$end)
+setwd("/mnt/scratch/fabrizio/LDLD")
+write.table(signAbed,file="above95/coding1000g/anal/snpsA_FIN.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+write.table(signBbed,file="above95/coding1000g/anal/snpsB_FIN.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+#sort -V -k1,1 -k2,2 above95/coding1000g/anal/snpsA_FIN.bed > temp
+#cat temp > above95/coding1000g/anal/snpsA_FIN.bed
+#sort -V -k1,1 -k2,2 above95/coding1000g/anal/snpsB_FIN.bed > temp
+#cat temp > above95/coding1000g/anal/snpsB_FIN.bed
+bedtools intersect -a above95/coding1000g/anal/snpsB_FIN.bed -b hgncmerged.bed -loj > above95/coding1000g/anal/FINB.bed
+bedtools intersect -a above95/coding1000g/anal/snpsA_FIN.bed -b hgncmerged.bed -loj > above95/coding1000g/anal/FINA.bed
+FINA<-read.table("FINA.bed",header=FALSE,sep='\t');
+FINB<-read.table("FINB.bed",header=FALSE);
+FINAB<-cbind(FINA[,7:9],FINB[,7:9])
+options(xtable.floating = FALSE)
+xtable(FINAB)
+
+head(FINAB)
+
+#======================================================================NETWORK-PLOTS
+#TAG NETWORK-PLOTS
+library(igraph)
+
+#highlysign_subsampled
+highlysign<-cbind(dataFIN,combined_fdr)[combined_fdr<0.000000000000000000000000000000000000000000000000000000000000000000001,]
+dim(highlysign)
+net<-generate_nework_LDLD(highlysign)
+myl_rt <- layout.reingold.tilford(net)
+net<-generate_nework_LDLD(highlysign)
+myl <- layout.graphopt(net)
+par(mfrow=c(1,2))
+#plot(net,vertex.label=NA,vertex.size=2,layout=myl,vertex.color=cols)
+pdf("connettivity_highlysign_coding.pdf")
+plot(net,vertex.label=NA,vertex.size=2,layout=myl)
+plot(net,vertex.label=NA,vertex.size=2,layout=myl_rt )
+dev.off()
+
+#highlysign_subsampled
+highlysign<-cbind(dataFIN,combined_fdr)[combined_fdr<0.05,]
+highlysign<-highlysign[sample(nrow(highlysign), 1000), ]
+dim(highlysign)
+net<-generate_nework_LDLD(highlysign)
+myl_rt <- layout.reingold.tilford(net)
+myl <- layout.graphopt(net)
+par(mfrow=c(1,2))
+#plot(net,vertex.label=NA,vertex.size=2,layout=myl,vertex.color=cols)
+pdf("connettivity_fdr05subsampled1k_coding.pdf")
+plot(net,vertex.label=NA,vertex.size=2,layout=myl)
+plot(net,vertex.label=NA,vertex.size=2,layout=myl_rt )
+dev.off()
+
+#left after removal of big cluster
+net<-generate_nework_LDLD(everythingislinked_LDLDleft)
+everythingislinked_LDLDleft_subs<-everythingislinked_LDLDleft[sample(nrow(everythingislinked_LDLDleft), 1000), ]
+net<-generate_nework_LDLD(everythingislinked_LDLDleft_subs)
+myl <- layout.graphopt(net)
+myl_rt <- layout.reingold.tilford(net)
+pdf("connettivity_nocentersubsampled1k_coding.pdf")
+plot(net,vertex.label=NA,vertex.size=2,layout=myl)
+plot(net,vertex.label=NA,vertex.size=2,layout=myl_rt )
+dev.off()
+
+#left sign after removal of big cluster
+FINsign_noC<-everythingislinked_LDLDleft[combined_fdr<0.05,]
+dataLDLD<-FINsign_noC
+dim(FINsign_noC)
+net<-generate_nework_LDLD(dataLDLD)
+myl <- layout.graphopt(net)
+pal <- rainbow(22, alpha=.5)
+cols<-pal[floor(id)]
+par(mfrow=c(1,1))
+pdf("connettivity_afterfiltering_coding.pdf")
+plot(net,vertex.label=NA,vertex.size=4,layout=myl,vertex.color=cols)
+dev.off()
+
+myl <- layout.graphopt(net)
+#pal <- rainbow(22, alpha=.5)
+#cols<-pal[floor(id)]
+par(mfrow=c(1,1))
+#plot(net,vertex.label=NA,vertex.size=2,layout=myl,vertex.color=cols)
+pdf("connettivity_fdr01subsampled1k_coding.pdf")
+plot(net,vertex.label=NA,vertex.size=2,layout=myl)
+dev.off()
+
+#----TAG:info statistics in 1000genomes--v
+if (FALSE)
+{ 
+  infosamplesFIN<-infosamples[[1]]
+  infosamples$In.Final.Phase.Variant.Calling
+  infosamplesFIN$ET.Pilot.Platforms
+  infosamplesFIN$HC.Pilot.Platforms
+  infosamplesFIN$Has.Exome.LOF.Genotypes
+  infosamplesFIN$Main.Project..E.Platform
+  infosamplesFIN$X..Targets.Covered.to.20x.or.greater
+  #infosamplesFIN$EBV.Coverage #Epstein-Barr Virus coverage.
+  infosamplesFIN$LC.Non.Duplicated.Aligned.Coverage
+  info1000g$In.Final.Phase.Variant.Calling
+  info1000g$ET.Pilot.Platforms
+  str(info1000g)
+  info1000g$ET.Pilot.Centers
+  info1000g$EBV.Coverage
+  info1000g$EBV.Coverage
+  info1000g$Has.Omni.Genotypes
+  info1000g$Has.Axiom.Genotypes
+  info1000g$Has.Affy.6.0.Genotypes
+  infosamplesFIN$Total.Exome.Sequence/1000000
+}
+#----------------------------------^
+
+
+#================TAG_MISSENSEBIS===============================
+
+#generate example bamtable from missensebis
+if (FALSE) 
+{
+data<-read.table("above95/missensebis/anal/sorted.res")
+names(data)<-c("chrA","chrB","posA","posB","dbsnpA","dbsnpB","nA","nB","Nse","nAB","nAA","nBB","D","D1","rho2","prho2","pfisher","pKuli","T2","Xtot","X","pop","popX")
+dataFIN<-subset(data,data$pop==7)
+combined_fdr<-p.adjust(p=dchisq(dataFIN$X,df=2*dataFIN$popX), method = "fdr", n = 689277987)
+highlysign<-cbind(dataFIN,combined_fdr)[combined_fdr<10^(-110),][1:20,]
+highlysignAbed<-as.data.frame(cbind(as.character(paste0('chr',highlysign$chrA)),highlysign$posA-1,highlysign$posA),stringsAsFactors =FALSE)
+highlysignBbed<-as.data.frame(cbind(as.character(paste0('chr',highlysign$chrB)),highlysign$posB-1,highlysign$posB),stringsAsFactors =FALSE)
+names(highlysignAbed)<-c("chr","start","end")
+names(highlysignBbed)<-c("chr","start","end")
+highlysignAbed$start<-as.numeric(highlysignAbed$start)
+highlysignAbed$end<-as.numeric(highlysignAbed$end)
+highlysignBbed$start<-as.numeric(highlysignBbed$start)
+highlysignBbed$end<-as.numeric(highlysignBbed$end)
+#create logos
+setwd("/mnt/scratch/fabrizio/LDLD")
+write.table(highlysignAbed,file="above95/missensebis/anal/hsnpsA.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+write.table(highlysignBbed,file="above95/missensebis/anal/hsnpsB.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+system("cat above95/missensebis/anal/hsnpsA.bed above95/missensebis/anal/hsnpsB.bed | sort -Vu -k1,1 -k2,2 > above95/missensebis/anal/hsnps.bed")
+data<-read.table("above95/missensebis/anal/hsnps.bed",stringsAsFactors =FALSE,header=FALSE)
+names(data)<-c("chr","start","end")
+data$start<-as.numeric(data$start)
+data$end<-as.numeric(data$end)
+createbedlogo(data,"above95/missensebis/logohighlysign")
+system("paste <(bedtools intersect -a <( cat above95/missensebis/anal/hsnps.bed | sed 's/chr//g' ) -b <( cat above95/missensebis/chr*.tab |  awk -v OFS='\t' '{print $1,$2-1,$2,$4,$5,$7}' | sort -Vu -k1,1 -k2,2) -loj | awk -v OFS='\t' '{print $1,$2,$3,$7,$8,$9,$10}' | sort -Vu -k1,1 -k2,2) above95/missensebis/logohighlysign | sort -Vu -k1,1 -k2,2 > above95/missensebis/logohighlysign.bed")
+myres<-bamlogo("above95/missensebis/logohighlysign.bed",tilltheend=FALSE,till=20)
+myres2<-as.data.frame(myres,row.names=FALSE)
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call")
+write.table(myres2,file="above95/missensebis/anal/logo2_20.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE)
+head(myres2)
+library(xtable)
+options(xtable.floating = FALSE)
+xtable(myres2[1:20, ])
+}
+#================TAG_MISSENSE===============================
+#generate example bamtable from missense
+if (FALSE) 
+{
+data<-read.table("above95/missense/anal/sorted.res")
+head(data)
+names(data)<-c("chrA","chrB","posA","posB","nA","nB","N","nAB","nAA","nBB","D","rAB","Drandom","rABrandom","ppermD","pfisher","pKuli09","pchi","LLDA","LLDB")
+combined_fdr<-p.adjust(p=data$pKuli09, method = "fdr", n = 689277987)
+highlysign<-cbind(data,combined_fdr)[combined_fdr<0.5,][1:20,]
+highlysignAbed<-as.data.frame(cbind(as.character(paste0('chr',highlysign$chrA)),highlysign$posA-1,highlysign$posA),stringsAsFactors =FALSE)
+highlysignBbed<-as.data.frame(cbind(as.character(paste0('chr',highlysign$chrB)),highlysign$posB-1,highlysign$posB),stringsAsFactors =FALSE)
+names(highlysignAbed)<-c("chr","start","end")
+names(highlysignBbed)<-c("chr","start","end")
+highlysignAbed$start<-as.numeric(highlysignAbed$start)
+highlysignAbed$end<-as.numeric(highlysignAbed$end)
+highlysignBbed$start<-as.numeric(highlysignBbed$start)
+highlysignBbed$end<-as.numeric(highlysignBbed$end)
+#create logos
+setwd("/mnt/scratch/fabrizio/LDLD")
+write.table(highlysignAbed,file="above95/missense/anal/hsnpsA.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+write.table(highlysignBbed,file="above95/missense/anal/hsnpsB.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=FALSE);
+system("cat above95/missense/anal/hsnpsA.bed above95/missense/anal/hsnpsB.bed | sort -Vu -k1,1 -k2,2 > above95/missense/anal/hsnps.bed")
+data<-read.table("above95/missense/anal/hsnps.bed",stringsAsFactors =FALSE,header=FALSE)
+names(data)<-c("chr","start","end")
+data$start<-as.numeric(data$start)
+data$end<-as.numeric(data$end)
+createbedlogo(data,"above95/missense/logohighlysign")
+system("paste <(bedtools intersect -a <( cat above95/missense/anal/hsnps.bed | sed 's/chr//g' ) -b <( cat above95/missense/chr*.tab |  awk -v OFS='\t' '{print $1,$2-1,$2,$4,$5,$7}' | sort -Vu -k1,1 -k2,2) -loj | awk -v OFS='\t' '{print $1,$2,$3,$7,$8,$9,$10}' | sort -Vu -k1,1 -k2,2) above95/missense/logohighlysign | sort -Vu -k1,1 -k2,2 > above95/missense/logohighlysign.bed")
+myres<-bamlogo("above95/missense/logohighlysign.bed",tilltheend=FALSE,till=15)
+myres2<-as.data.frame(myres,row.names=FALSE)
+names(myres2)<-c("chr","start","end","ref","alt","seq5p","A","C","G","T","tot_second_call")
+write.table(myres2,file="above95/missense/anal/logo2_20.bed",row.names = FALSE,quote=FALSE,sep='\t',col.names=TRUE)
+head(myres2)
+library(xtable)
+options(xtable.floating = FALSE)
+xtable(myres2[1:15, ])
+}
+
+highlysign<-cbind(dataFIN,combined_fdr)[combined_fdr<0.01,]
+dim(highlysign)
+highlysign<-highlysign[sample(nrow(highlysign), 2000), ]
+library(igraph)
+node1<-as.numeric(paste0(highlysign$chrA,".",highlysign$posA))
+node2<-as.numeric(paste0(highlysign$chrB,".",highlysign$posB))
+id<-unique(c(node1,node2))
+length(id)
+floor(id)
+nodes<-data.frame(id)
+links<-data.frame(node1,node2,highlysign$combined_fdr)
+dim(links)#149
+#nodes <- read.csv("~/Dropbox/dropbox_tablet/manuals/R/GeneNet_works/Data/Dataset1-Media-Example-NODES.csv", header=T, as.is=T)
+#links <- read.csv("~/Dropbox/dropbox_tablet/manuals/R/GeneNet_works/Data/Dataset1-Media-Example-EDGES.csv", header=T, as.is=T)
+#dim(nodes)
+#dim(links)
+#head(links)
+#net <- graph.data.frame(links, nodes, directed=T)
+names(links)<-c("from","to","weight")
+net <- graph.data.frame(links, nodes, directed=F)
+#myl <- layout.kamada.kawai(net)
+#myl <- layout.random(net)
+#myl <- layout.spring(net, mass=1)
+#myl <- layout.fruchterman.reingold(net, repulserad=vcount(net)^3,area=vcount(net)^2.4)
+#myl <- fruchterman.reingold.grid(net)
+#myl <- layout.grid(net)
+myl <- layout.graphopt(net)
+#pal <- rainbow(22, alpha=.5)
+#cols<-pal[floor(id)]
+par(mfrow=c(1,1))
+#plot(net,vertex.label=NA,vertex.size=2,layout=myl,vertex.color=cols)
+pdf("connettivity_fdr01subsampled1k_coding.pdf")
+plot(net,vertex.label=NA,vertex.size=2,layout=myl)
+dev.off()
